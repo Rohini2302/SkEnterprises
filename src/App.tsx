@@ -40,6 +40,7 @@ import Billing from "./pages/superadmin/Billing";
 import Reports from "./pages/superadmin/Reports";
 import Settings from "./pages/superadmin/Settings";
 import LeaveManagement from "./pages/superadmin/LeaveManagement";
+import AttendanceTab from "./pages/superadmin/AttendanceTab";
 
 // Admin Pages
 import AdminProfile from "./pages/admin/Profile";
@@ -80,6 +81,7 @@ import ManagerAttendance from "./pages/manager/ManagerAttendance";
 import WorkQuery from "./pages/supervisor/WorkQuery";
 import SuperAdminWorkIssues from "./pages/superadmin/SuperAdminWorkIssues";
 
+
 const queryClient = new QueryClient();
 
 const App = () => (
@@ -119,6 +121,7 @@ const App = () => (
               <Route path="billing" element={<Billing />} />
               <Route path="reports" element={<Reports />} />
               <Route path="settings" element={<Settings />} />
+              <Route path="attendaceview" element={<AttendanceTab />} />
               <Route path="leave" element={<LeaveManagement />} />
             </Route>
 

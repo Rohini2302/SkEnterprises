@@ -10,10 +10,10 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, FileText, DollarSign, TrendingUp, Eye, Download, Upload, IndianRupee, Calendar, Clock, CreditCard, Banknote, Receipt, Edit, Users, Filter, FileDown, Building, Home, Shield, Car, Trash2, Droplets, Package, List, Grid, ChevronLeft, ChevronRight, Search } from "lucide-react";
+import { Plus, FileText, DollarSign, TrendingUp, Eye, Download, Upload, IndianRupee, Calendar, Clock, CreditCard, Banknote, Receipt, Edit, Users, Filter, FileDown, Building, Home, Shield, Car, Trash2, Droplets, Package, List, Grid, ChevronLeft, ChevronRight, Search, AlertTriangle, BarChart3, PieChart } from "lucide-react";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell } from "recharts";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Pie, Cell } from "recharts";
 
 interface Invoice {
   id: string;
@@ -49,6 +49,7 @@ interface Expense {
   paymentMethod: string;
   gst?: number;
   site?: string;
+  expenseType: "operational" | "office" | "other";
 }
 
 interface Payment {
@@ -86,6 +87,14 @@ interface PartyBalance {
   site?: string;
 }
 
+interface SiteProfit {
+  site: string;
+  revenue: number;
+  expenses: number;
+  netProfit: number;
+  profitMargin: number;
+}
+
 const Billing = () => {
   const [invoiceDialogOpen, setInvoiceDialogOpen] = useState(false);
   const [expenseDialogOpen, setExpenseDialogOpen] = useState(false);
@@ -97,10 +106,12 @@ const Billing = () => {
   const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null);
   const [selectedParty, setSelectedParty] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("invoices");
+  const [expenseTypeFilter, setExpenseTypeFilter] = useState<"all" | "operational" | "office" | "other">("all");
   const [dateFilter, setDateFilter] = useState({
     startDate: "",
     endDate: ""
   });
+  const [reportPeriod, setReportPeriod] = useState<"weekly" | "monthly">("monthly");
   const [viewMode, setViewMode] = useState<"table" | "card">("table");
   const [ledgerViewMode, setLedgerViewMode] = useState<"table" | "card">("table");
   const [searchTerm, setSearchTerm] = useState("");
@@ -126,6 +137,24 @@ const Billing = () => {
     "Waste Management",
     "STP Tank Cleaning",
     "Consumables Supply"
+  ];
+
+  const expenseCategories = [
+    "Equipment",
+    "Cleaning Supplies",
+    "Infrastructure",
+    "Waste Management",
+    "STP Maintenance",
+    "Security",
+    "Parking",
+    "Utilities",
+    "Office Supplies",
+    "Software & Technology",
+    "Travel & Conveyance",
+    "Professional Services",
+    "Marketing & Advertising",
+    "Repairs & Maintenance",
+    "Other Expenses"
   ];
 
   const clients = [
@@ -352,7 +381,8 @@ const Billing = () => {
       vendor: "Security Solutions India",
       paymentMethod: "Bank Transfer",
       gst: 33300,
-      site: "Tech Park Bangalore"
+      site: "Tech Park Bangalore",
+      expenseType: "operational"
     },
     {
       id: "EXP-002",
@@ -364,7 +394,8 @@ const Billing = () => {
       vendor: "CleanTech Supplies",
       paymentMethod: "Credit Card",
       gst: 13500,
-      site: "Financial District Mumbai"
+      site: "Financial District Mumbai",
+      expenseType: "operational"
     },
     {
       id: "EXP-003",
@@ -376,7 +407,8 @@ const Billing = () => {
       vendor: "ParkTech Solutions",
       paymentMethod: "Bank Transfer",
       gst: 57600,
-      site: "IT Hub Hyderabad"
+      site: "IT Hub Hyderabad",
+      expenseType: "operational"
     },
     {
       id: "EXP-004",
@@ -388,7 +420,8 @@ const Billing = () => {
       vendor: "EcoWaste Systems",
       paymentMethod: "UPI",
       gst: 8100,
-      site: "Commercial Complex Delhi"
+      site: "Commercial Complex Delhi",
+      expenseType: "operational"
     },
     {
       id: "EXP-005",
@@ -400,67 +433,86 @@ const Billing = () => {
       vendor: "WaterTech Solutions",
       paymentMethod: "Bank Transfer",
       gst: 12240,
-      site: "Business Center Chennai"
+      site: "Business Center Chennai",
+      expenseType: "operational"
     },
     {
       id: "EXP-006",
-      category: "Security",
-      description: "Security Personnel Uniforms and Gear",
-      amount: 45000,
+      category: "Office Supplies",
+      description: "Office Stationery and Printer Cartridges",
+      amount: 25000,
       date: "2024-01-14",
       status: "approved",
-      vendor: "Security Gear India",
-      paymentMethod: "Bank Transfer",
-      gst: 8100,
-      site: "Tech Park Bangalore"
+      vendor: "Office Depot India",
+      paymentMethod: "Credit Card",
+      gst: 4500,
+      site: "Tech Park Bangalore",
+      expenseType: "office"
     },
     {
       id: "EXP-007",
-      category: "Parking",
-      description: "Parking Barrier System Upgrade",
-      amount: 89000,
+      category: "Software & Technology",
+      description: "Accounting Software Subscription",
+      amount: 45000,
       date: "2024-01-19",
-      status: "pending",
-      vendor: "AutoPark Systems",
-      paymentMethod: "Credit Card",
-      gst: 16020,
-      site: "Financial District Mumbai"
+      status: "approved",
+      vendor: "Tech Solutions Ltd",
+      paymentMethod: "Bank Transfer",
+      gst: 8100,
+      site: "Financial District Mumbai",
+      expenseType: "office"
     },
     {
       id: "EXP-008",
-      category: "Utilities",
-      description: "Monthly Electricity and Water Bills",
-      amount: 35000,
+      category: "Travel & Conveyance",
+      description: "Client Meeting Travel Expenses",
+      amount: 18000,
       date: "2024-01-28",
       status: "approved",
-      vendor: "State Utilities Board",
-      paymentMethod: "Bank Transfer",
-      gst: 6300,
-      site: "IT Hub Hyderabad"
+      vendor: "Multiple Vendors",
+      paymentMethod: "Cash",
+      gst: 3240,
+      site: "IT Hub Hyderabad",
+      expenseType: "office"
     },
     {
       id: "EXP-009",
-      category: "Cleaning Supplies",
-      description: "Industrial Cleaning Equipment",
-      amount: 120000,
+      category: "Professional Services",
+      description: "Legal Consultation Fees",
+      amount: 35000,
       date: "2024-01-30",
-      status: "approved",
-      vendor: "CleanPro Equipment",
+      status: "pending",
+      vendor: "Legal Associates LLP",
       paymentMethod: "Bank Transfer",
-      gst: 21600,
-      site: "Commercial Complex Delhi"
+      gst: 6300,
+      site: "Commercial Complex Delhi",
+      expenseType: "other"
     },
     {
       id: "EXP-010",
-      category: "STP Maintenance",
-      description: "Water Treatment Chemicals Supply",
+      category: "Marketing & Advertising",
+      description: "Digital Marketing Campaign",
       amount: 55000,
       date: "2024-01-31",
-      status: "pending",
-      vendor: "ChemTech Solutions",
+      status: "approved",
+      vendor: "Digital Marketing Pro",
       paymentMethod: "UPI",
       gst: 9900,
-      site: "Business Center Chennai"
+      site: "Business Center Chennai",
+      expenseType: "other"
+    },
+    {
+      id: "EXP-011",
+      category: "Other Expenses",
+      description: "Miscellaneous Unplanned Expenses",
+      amount: 15000,
+      date: "2024-01-20",
+      status: "approved",
+      vendor: "Various Vendors",
+      paymentMethod: "Cash",
+      gst: 2700,
+      site: "Tech Park Bangalore",
+      expenseType: "other"
     }
   ]);
 
@@ -515,6 +567,7 @@ const Billing = () => {
   // Ledger and Balance State
   const [ledgerEntries, setLedgerEntries] = useState<LedgerEntry[]>([]);
   const [partyBalances, setPartyBalances] = useState<PartyBalance[]>([]);
+  const [siteProfits, setSiteProfits] = useState<SiteProfit[]>([]);
 
   // Enhanced revenue data
   const revenueData = [
@@ -550,6 +603,7 @@ const Billing = () => {
   // Initialize Ledger from existing data
   useEffect(() => {
     initializeLedger();
+    calculateSiteProfits();
   }, [invoices, payments, expenses]);
 
   const initializeLedger = () => {
@@ -687,6 +741,28 @@ const Billing = () => {
     setPartyBalances(Object.values(balances));
   };
 
+  const calculateSiteProfits = () => {
+    const profits: SiteProfit[] = sites.map(site => {
+      const siteInvoices = invoices.filter(inv => inv.site === site && inv.status === "paid");
+      const siteExpenses = expenses.filter(exp => exp.site === site && exp.status === "approved");
+      
+      const revenue = siteInvoices.reduce((sum, inv) => sum + inv.amount, 0);
+      const expensesTotal = siteExpenses.reduce((sum, exp) => sum + exp.amount, 0);
+      const netProfit = revenue - expensesTotal;
+      const profitMargin = revenue > 0 ? (netProfit / revenue) * 100 : 0;
+      
+      return {
+        site,
+        revenue,
+        expenses: expensesTotal,
+        netProfit,
+        profitMargin
+      };
+    });
+    
+    setSiteProfits(profits);
+  };
+
   // Enhanced functions
   const handleCreateInvoice = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -741,6 +817,7 @@ const Billing = () => {
     
     const amount = parseInt(formData.get("amount") as string);
     const gst = amount * 0.18; // 18% GST on expenses
+    const expenseType = formData.get("expenseType") as "operational" | "office" | "other";
     
     const newExpense: Expense = {
       id: `EXP-${(expenses.length + 1).toString().padStart(3, '0')}`,
@@ -753,6 +830,7 @@ const Billing = () => {
       paymentMethod: formData.get("paymentMethod") as string,
       gst: gst,
       site: formData.get("site") as string,
+      expenseType: expenseType
     };
     
     setExpenses(prev => [newExpense, ...prev]);
@@ -767,6 +845,7 @@ const Billing = () => {
     const formData = new FormData(e.currentTarget);
     const amount = parseInt(formData.get("amount") as string);
     const gst = amount * 0.18; // 18% GST on expenses
+    const expenseType = formData.get("expenseType") as "operational" | "office" | "other";
     
     const updatedExpense: Expense = {
       ...selectedExpense,
@@ -778,6 +857,7 @@ const Billing = () => {
       paymentMethod: formData.get("paymentMethod") as string,
       gst: gst,
       site: formData.get("site") as string,
+      expenseType: expenseType
     };
     
     setExpenses(prev => prev.map(exp => 
@@ -906,7 +986,7 @@ const Billing = () => {
       case "expenses":
         data = expenses;
         filename = "expenses-export.csv";
-        headers = ["ID", "Category", "Description", "Amount", "Date", "Status", "Vendor", "Payment Method", "GST", "Site"];
+        headers = ["ID", "Category", "Description", "Amount", "Date", "Status", "Vendor", "Payment Method", "GST", "Site", "Expense Type"];
         csvContent = [
           headers.join(","),
           ...data.map(expense => [
@@ -919,7 +999,8 @@ const Billing = () => {
             `"${expense.vendor}"`,
             expense.paymentMethod,
             expense.gst || 0,
-            expense.site || ""
+            expense.site || "",
+            expense.expenseType
           ].join(","))
         ].join("\n");
         break;
@@ -961,6 +1042,22 @@ const Billing = () => {
             balance.status,
             balance.lastTransaction,
             balance.site || ""
+          ].join(","))
+        ].join("\n");
+        break;
+
+      case "site-profits":
+        data = siteProfits;
+        filename = "site-profits-export.csv";
+        headers = ["Site", "Revenue", "Expenses", "Net Profit", "Profit Margin %"];
+        csvContent = [
+          headers.join(","),
+          ...data.map(profit => [
+            `"${profit.site}"`,
+            profit.revenue,
+            profit.expenses,
+            profit.netProfit,
+            profit.profitMargin.toFixed(2)
           ].join(","))
         ].join("\n");
         break;
@@ -1019,6 +1116,72 @@ const Billing = () => {
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   };
 
+  // New Functions for Enhanced Features
+  const getFilteredExpenses = () => {
+    let filtered = expenses;
+
+    if (expenseTypeFilter !== "all") {
+      filtered = filtered.filter(expense => expense.expenseType === expenseTypeFilter);
+    }
+
+    if (searchTerm) {
+      filtered = filtered.filter(expense => 
+        expense.vendor.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        expense.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        expense.site?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        expense.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        expense.description.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+    }
+
+    return filtered;
+  };
+
+  const getSiteWiseExpenses = () => {
+    const siteExpenses: { [key: string]: { operational: number, office: number, other: number, total: number } } = {};
+    
+    sites.forEach(site => {
+      siteExpenses[site] = {
+        operational: expenses
+          .filter(exp => exp.site === site && exp.expenseType === "operational" && exp.status === "approved")
+          .reduce((sum, exp) => sum + exp.amount, 0),
+        office: expenses
+          .filter(exp => exp.site === site && exp.expenseType === "office" && exp.status === "approved")
+          .reduce((sum, exp) => sum + exp.amount, 0),
+        other: expenses
+          .filter(exp => exp.site === site && exp.expenseType === "other" && exp.status === "approved")
+          .reduce((sum, exp) => sum + exp.amount, 0),
+        total: expenses
+          .filter(exp => exp.site === site && exp.status === "approved")
+          .reduce((sum, exp) => sum + exp.amount, 0)
+      };
+    });
+    
+    return siteExpenses;
+  };
+
+  const getPendingBills = () => {
+    return invoices.filter(invoice => 
+      invoice.status === "pending" || invoice.status === "overdue"
+    );
+  };
+
+  const getWeeklyMonthlyExpenses = (period: "weekly" | "monthly") => {
+    const now = new Date();
+    let startDate: Date;
+    
+    if (period === "weekly") {
+      startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    } else {
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+    }
+    
+    return expenses.filter(expense => {
+      const expenseDate = new Date(expense.date);
+      return expenseDate >= startDate && expenseDate <= now;
+    });
+  };
+
   // Utility functions
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -1066,6 +1229,15 @@ const Billing = () => {
     }
   };
 
+  const getExpenseTypeColor = (type: string) => {
+    switch (type) {
+      case "operational": return "bg-blue-100 text-blue-800 border-blue-200";
+      case "office": return "bg-green-100 text-green-800 border-green-200";
+      case "other": return "bg-purple-100 text-purple-800 border-purple-200";
+      default: return "bg-gray-100 text-gray-800 border-gray-200";
+    }
+  };
+
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-IN', {
       style: 'currency',
@@ -1082,16 +1254,6 @@ const Billing = () => {
       invoice.site?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       invoice.serviceType?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       invoice.status.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-  };
-
-  const getFilteredExpenses = () => {
-    return expenses.filter(expense => 
-      expense.vendor.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      expense.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      expense.site?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      expense.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      expense.description.toLowerCase().includes(searchTerm.toLowerCase())
     );
   };
 
@@ -1135,6 +1297,9 @@ const Billing = () => {
   const paginatedInvoices = getPaginatedData(filteredInvoices);
   const paginatedExpenses = getPaginatedData(filteredExpenses);
   const paginatedLedgerEntries = getPaginatedLedgerData(filteredLedgerEntries);
+  const pendingBills = getPendingBills();
+  const siteWiseExpenses = getSiteWiseExpenses();
+  const periodExpenses = getWeeklyMonthlyExpenses(reportPeriod);
 
   return (
     <div className="min-h-screen bg-background">
@@ -1145,7 +1310,7 @@ const Billing = () => {
         animate={{ opacity: 1, y: 0 }}
         className="p-6 space-y-6"
       >
-        {/* Enhanced Stats Cards */}
+        {/* Enhanced Stats Cards with Pending Bills Alert */}
         <div className="grid gap-4 md:grid-cols-4">
           <Card>
             <CardHeader className="pb-2">
@@ -1161,20 +1326,26 @@ const Billing = () => {
           </Card>
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">Pending Payments</CardTitle>
+              <CardTitle className="text-sm font-medium flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-yellow-600" />
+                Pending Payments
+              </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{formatCurrency(pendingAmount)}</div>
-              <p className="text-xs text-muted-foreground">{invoices.filter(i => i.status === "pending").length} invoices</p>
+              <div className="text-2xl font-bold text-yellow-600">{formatCurrency(pendingAmount)}</div>
+              <p className="text-xs text-muted-foreground">{invoices.filter(i => i.status === "pending").length} pending invoices</p>
             </CardContent>
           </Card>
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">Total Expenses</CardTitle>
+              <CardTitle className="text-sm font-medium flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-red-600" />
+                Overdue Payments
+              </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-destructive">{formatCurrency(totalExpenses)}</div>
-              <p className="text-xs text-muted-foreground">{expenses.filter(e => e.status === "approved").length} approved</p>
+              <div className="text-2xl font-bold text-red-600">{formatCurrency(overdueAmount)}</div>
+              <p className="text-xs text-muted-foreground">{invoices.filter(i => i.status === "overdue").length} overdue invoices</p>
             </CardContent>
           </Card>
           <Card>
@@ -1189,6 +1360,35 @@ const Billing = () => {
             </CardContent>
           </Card>
         </div>
+
+        {/* Pending Bills Flash Section */}
+        {pendingBills.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-yellow-50 border border-yellow-200 rounded-lg p-4"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <AlertTriangle className="h-6 w-6 text-yellow-600" />
+                <div>
+                  <h3 className="font-semibold text-yellow-800">Pending Bills Alert</h3>
+                  <p className="text-yellow-700 text-sm">
+                    You have {pendingBills.length} pending bills totaling {formatCurrency(pendingAmount + overdueAmount)}
+                  </p>
+                </div>
+              </div>
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={() => setActiveTab("invoices")}
+                className="border-yellow-300 text-yellow-700 hover:bg-yellow-100"
+              >
+                View All
+              </Button>
+            </div>
+          </motion.div>
+        )}
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="grid w-full grid-cols-5">
@@ -1366,7 +1566,10 @@ const Billing = () => {
                       </TableHeader>
                       <TableBody>
                         {paginatedInvoices.map((invoice) => (
-                          <TableRow key={invoice.id}>
+                          <TableRow key={invoice.id} className={
+                            invoice.status === "overdue" ? "bg-red-50 hover:bg-red-100" :
+                            invoice.status === "pending" ? "bg-yellow-50 hover:bg-yellow-100" : ""
+                          }>
                             <TableCell className="font-medium">{invoice.id}</TableCell>
                             <TableCell>
                               <div>
@@ -1467,7 +1670,10 @@ const Billing = () => {
                   <>
                     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                       {paginatedInvoices.map((invoice) => (
-                        <Card key={invoice.id} className="hover:shadow-md transition-shadow">
+                        <Card key={invoice.id} className={`hover:shadow-md transition-shadow ${
+                          invoice.status === "overdue" ? "border-red-200 bg-red-50" :
+                          invoice.status === "pending" ? "border-yellow-200 bg-yellow-50" : ""
+                        }`}>
                           <CardHeader className="pb-3">
                             <div className="flex justify-between items-start">
                               <div>
@@ -1586,7 +1792,7 @@ const Billing = () => {
             </Card>
           </TabsContent>
 
-          {/* Expenses Tab */}
+          {/* Enhanced Expenses Tab with Type Filter */}
           <TabsContent value="expenses">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
@@ -1631,20 +1837,28 @@ const Billing = () => {
                       </DialogHeader>
                       <form onSubmit={handleAddExpense} className="space-y-4">
                         <div className="space-y-2">
+                          <Label htmlFor="expenseType">Expense Type</Label>
+                          <Select name="expenseType" required>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select expense type" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="operational">Operational Expenses</SelectItem>
+                              <SelectItem value="office">Office Expenses</SelectItem>
+                              <SelectItem value="other">Other Expenses</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2">
                           <Label htmlFor="category">Category</Label>
                           <Select name="category" required>
                             <SelectTrigger>
                               <SelectValue placeholder="Select category" />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="Equipment">Equipment</SelectItem>
-                              <SelectItem value="Cleaning Supplies">Cleaning Supplies</SelectItem>
-                              <SelectItem value="Infrastructure">Infrastructure</SelectItem>
-                              <SelectItem value="Waste Management">Waste Management</SelectItem>
-                              <SelectItem value="STP Maintenance">STP Maintenance</SelectItem>
-                              <SelectItem value="Security">Security</SelectItem>
-                              <SelectItem value="Parking">Parking</SelectItem>
-                              <SelectItem value="Utilities">Utilities</SelectItem>
+                              {expenseCategories.map(category => (
+                                <SelectItem key={category} value={category}>{category}</SelectItem>
+                              ))}
                             </SelectContent>
                           </Select>
                         </div>
@@ -1702,6 +1916,86 @@ const Billing = () => {
                 </div>
               </CardHeader>
               <CardContent>
+                {/* Expense Type Filter */}
+                <div className="flex gap-2 mb-4">
+                  <Button
+                    variant={expenseTypeFilter === "all" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setExpenseTypeFilter("all")}
+                  >
+                    All Expenses
+                  </Button>
+                  <Button
+                    variant={expenseTypeFilter === "operational" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setExpenseTypeFilter("operational")}
+                  >
+                    Operational
+                  </Button>
+                  <Button
+                    variant={expenseTypeFilter === "office" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setExpenseTypeFilter("office")}
+                  >
+                    Office
+                  </Button>
+                  <Button
+                    variant={expenseTypeFilter === "other" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setExpenseTypeFilter("other")}
+                  >
+                    Other
+                  </Button>
+                </div>
+
+                {/* Site-wise Expense Report */}
+                <div className="mb-6">
+                  <h3 className="font-semibold mb-3">Site-wise Expense Report ({reportPeriod === "weekly" ? "Weekly" : "Monthly"})</h3>
+                  <div className="flex gap-2 mb-4">
+                    <Button
+                      variant={reportPeriod === "weekly" ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setReportPeriod("weekly")}
+                    >
+                      Weekly
+                    </Button>
+                    <Button
+                      variant={reportPeriod === "monthly" ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setReportPeriod("monthly")}
+                    >
+                      Monthly
+                    </Button>
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                    {sites.map(site => (
+                      <Card key={site}>
+                        <CardHeader className="pb-3">
+                          <CardTitle className="text-sm">{site}</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-2">
+                          <div className="flex justify-between text-sm">
+                            <span>Operational:</span>
+                            <span className="font-medium">{formatCurrency(siteWiseExpenses[site]?.operational || 0)}</span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span>Office:</span>
+                            <span className="font-medium">{formatCurrency(siteWiseExpenses[site]?.office || 0)}</span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span>Other:</span>
+                            <span className="font-medium">{formatCurrency(siteWiseExpenses[site]?.other || 0)}</span>
+                          </div>
+                          <div className="flex justify-between text-sm border-t pt-2 font-semibold">
+                            <span>Total:</span>
+                            <span>{formatCurrency(siteWiseExpenses[site]?.total || 0)}</span>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+
                 {/* Search and Filter Info */}
                 {searchTerm && (
                   <div className="mb-4 p-3 bg-muted/50 rounded-lg">
@@ -1717,6 +2011,7 @@ const Billing = () => {
                       <TableHeader>
                         <TableRow>
                           <TableHead>Expense ID</TableHead>
+                          <TableHead>Type</TableHead>
                           <TableHead>Category</TableHead>
                           <TableHead>Description</TableHead>
                           <TableHead>Site</TableHead>
@@ -1730,6 +2025,11 @@ const Billing = () => {
                         {paginatedExpenses.map((expense) => (
                           <TableRow key={expense.id}>
                             <TableCell className="font-medium">{expense.id}</TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className={getExpenseTypeColor(expense.expenseType)}>
+                                {expense.expenseType}
+                              </Badge>
+                            </TableCell>
                             <TableCell>{expense.category}</TableCell>
                             <TableCell className="max-w-xs truncate">{expense.description}</TableCell>
                             <TableCell>
@@ -1808,9 +2108,14 @@ const Billing = () => {
                                 <CardTitle className="text-base">{expense.id}</CardTitle>
                                 <p className="text-sm text-muted-foreground">{expense.vendor}</p>
                               </div>
-                              <Badge variant={getStatusColor(expense.status)}>
-                                {expense.status}
-                              </Badge>
+                              <div className="flex flex-col items-end gap-1">
+                                <Badge variant={getStatusColor(expense.status)}>
+                                  {expense.status}
+                                </Badge>
+                                <Badge variant="outline" className={getExpenseTypeColor(expense.expenseType)}>
+                                  {expense.expenseType}
+                                </Badge>
+                              </div>
                             </div>
                           </CardHeader>
                           <CardContent className="space-y-3">
@@ -2377,13 +2682,60 @@ const Billing = () => {
             </Card>
           </TabsContent>
 
-          {/* Enhanced Analytics Tab */}
+          {/* Enhanced Analytics Tab with Site-wise Profit */}
           <TabsContent value="analytics">
             <Card>
-              <CardHeader>
+              <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle>Financial Analytics</CardTitle>
+                <Button variant="outline" onClick={() => handleExportData("site-profits")}>
+                  <Download className="mr-2 h-4 w-4" />
+                  Export Site Profits
+                </Button>
               </CardHeader>
               <CardContent className="space-y-6">
+                {/* Site-wise Profit Section */}
+                <div>
+                  <h3 className="font-semibold mb-4">Site-wise Profit Analysis</h3>
+                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                    {siteProfits.map((profit) => (
+                      <Card key={profit.site} className={
+                        profit.netProfit >= 0 ? "border-green-200" : "border-red-200"
+                      }>
+                        <CardHeader className="pb-3">
+                          <CardTitle className="text-sm">{profit.site}</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-2">
+                          <div className="flex justify-between text-sm">
+                            <span>Revenue:</span>
+                            <span className="font-medium text-green-600">{formatCurrency(profit.revenue)}</span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span>Expenses:</span>
+                            <span className="font-medium text-red-600">{formatCurrency(profit.expenses)}</span>
+                          </div>
+                          <div className="flex justify-between text-sm border-t pt-2 font-semibold">
+                            <span>Net Profit:</span>
+                            <span className={
+                              profit.netProfit >= 0 ? "text-green-600" : "text-red-600"
+                            }>
+                              {formatCurrency(profit.netProfit)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span>Profit Margin:</span>
+                            <span className={
+                              profit.profitMargin >= 20 ? "text-green-600" : 
+                              profit.profitMargin >= 10 ? "text-yellow-600" : "text-red-600"
+                            }>
+                              {profit.profitMargin.toFixed(1)}%
+                            </span>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+
                 <div className="grid gap-6 md:grid-cols-2">
                   <div>
                     <h3 className="font-semibold mb-4">Revenue vs Expenses</h3>
@@ -2608,6 +2960,12 @@ const Billing = () => {
                   <div><strong>Payment Method:</strong> {selectedExpense.paymentMethod}</div>
                   <div><strong>Status:</strong> {selectedExpense.status}</div>
                   <div><strong>Site:</strong> {selectedExpense.site}</div>
+                  <div>
+                    <strong>Expense Type:</strong>
+                    <Badge variant="outline" className={`ml-2 ${getExpenseTypeColor(selectedExpense.expenseType)}`}>
+                      {selectedExpense.expenseType}
+                    </Badge>
+                  </div>
                 </div>
                 <div>
                   <strong>Description:</strong>
@@ -2641,20 +2999,28 @@ const Billing = () => {
             {selectedExpense && (
               <form onSubmit={handleEditExpense} className="space-y-4">
                 <div className="space-y-2">
+                  <Label htmlFor="edit-expenseType">Expense Type</Label>
+                  <Select name="expenseType" defaultValue={selectedExpense.expenseType} required>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="operational">Operational Expenses</SelectItem>
+                      <SelectItem value="office">Office Expenses</SelectItem>
+                      <SelectItem value="other">Other Expenses</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
                   <Label htmlFor="edit-category">Category</Label>
                   <Select name="category" defaultValue={selectedExpense.category} required>
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="Equipment">Equipment</SelectItem>
-                      <SelectItem value="Cleaning Supplies">Cleaning Supplies</SelectItem>
-                      <SelectItem value="Infrastructure">Infrastructure</SelectItem>
-                      <SelectItem value="Waste Management">Waste Management</SelectItem>
-                      <SelectItem value="STP Maintenance">STP Maintenance</SelectItem>
-                      <SelectItem value="Security">Security</SelectItem>
-                      <SelectItem value="Parking">Parking</SelectItem>
-                      <SelectItem value="Utilities">Utilities</SelectItem>
+                      {expenseCategories.map(category => (
+                        <SelectItem key={category} value={category}>{category}</SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>

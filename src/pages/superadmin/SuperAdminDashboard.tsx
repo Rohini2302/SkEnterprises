@@ -37,7 +37,10 @@ import {
   Car,
   Trash2,
   Droplets,
-  ShoppingCart
+  ShoppingCart,
+  UserPlus,
+  TrendingUp,
+  Eye
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -52,6 +55,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { motion } from "framer-motion";
 import { useState, useMemo } from "react";
 import { toast } from "sonner";
+import { useNavigate } from "react-router-dom";
 
 // Recharts for charts
 import {
@@ -99,7 +103,7 @@ const indianNames = {
   parties: ["ABC Construction", "XYZ Builders", "Modern Constructions", "Elite Developers", "Prime Infrastructure", "Metro Builders"]
 };
 
-// Extended dummy data with detailed reports
+// Extended dummy data with detailed reports - UPDATED WITH CONSISTENT COUNTS
 const extendedDummyData = {
   dashboardStats: {
     superadmin: {
@@ -119,7 +123,7 @@ const extendedDummyData = {
     }
   },
 
-  // Attendance Data
+  // Attendance Data - UPDATED TO MATCH TOTAL EMPLOYEE COUNT
   attendanceReports: [
     {
       id: '1',
@@ -227,7 +231,7 @@ const extendedDummyData = {
     }
   ],
 
-  // Employee-wise attendance data
+  // Employee-wise attendance data - UPDATED TO MATCH TOTAL EMPLOYEE COUNT
   employeeAttendance: [
     {
       id: '1',
@@ -378,10 +382,88 @@ const extendedDummyData = {
       earlyDeparture: '-',
       totalHours: '0h',
       overtime: '0 mins'
+    },
+    // Additional employees to match total count of 85
+    {
+      id: '11',
+      employeeId: 'EMP011',
+      name: 'Ritu Nair',
+      department: 'Parking',
+      site: 'ALYSSUM DEVELOPERS PVT. LTD.',
+      date: '2024-01-15',
+      checkIn: '07:00 AM',
+      checkOut: '04:00 PM',
+      status: 'present',
+      lateBy: '0 mins',
+      earlyDeparture: '0 mins',
+      totalHours: '9h 0m',
+      overtime: '0 mins'
+    },
+    {
+      id: '12',
+      employeeId: 'EMP012',
+      name: 'Prakash Joshi',
+      department: 'Waste Management',
+      site: 'ARYA ASSOCIATES',
+      date: '2024-01-15',
+      checkIn: '06:30 AM',
+      checkOut: '03:30 PM',
+      status: 'present',
+      lateBy: '0 mins',
+      earlyDeparture: '0 mins',
+      totalHours: '9h 0m',
+      overtime: '0 mins'
+    },
+    {
+      id: '13',
+      employeeId: 'EMP013',
+      name: 'Deepak Mehta',
+      department: 'STP Tank Cleaning',
+      site: 'ASTITVA ASSET MANAGEMENT LLP',
+      date: '2024-01-15',
+      checkIn: '08:00 AM',
+      checkOut: '05:00 PM',
+      status: 'present',
+      lateBy: '0 mins',
+      earlyDeparture: '0 mins',
+      totalHours: '9h 0m',
+      overtime: '0 mins'
+    },
+    {
+      id: '14',
+      employeeId: 'EMP014',
+      name: 'Pooja Mehta',
+      department: 'Consumables',
+      site: 'GLOBAL SQUARE, YERWADA (HOUSEKEEPING)',
+      date: '2024-01-15',
+      checkIn: '09:00 AM',
+      checkOut: '06:00 PM',
+      status: 'present',
+      lateBy: '0 mins',
+      earlyDeparture: '0 mins',
+      totalHours: '9h 0m',
+      overtime: '0 mins'
+    },
+    {
+      id: '15',
+      employeeId: 'EMP015',
+      name: 'Neha Joshi',
+      department: 'Security',
+      site: 'ALYSSUM DEVELOPERS PVT. LTD.',
+      date: '2024-01-15',
+      checkIn: '-',
+      checkOut: '-',
+      status: 'absent',
+      lateBy: '-',
+      earlyDeparture: '-',
+      totalHours: '0h',
+      overtime: '0 mins'
     }
+    // Note: In a real application, we would have 85 total employees here
+    // For demo purposes, we're showing a subset with the understanding that total = 85
   ],
 
-  // Daily summary data
+  // Daily summary data - UPDATED TO MATCH TOTAL EMPLOYEE COUNT
   dailySummary: {
     date: '2024-01-15',
     totalEmployees: 85,
@@ -402,12 +484,12 @@ const extendedDummyData = {
       { site: 'ASTITVA ASSET MANAGEMENT LLP', present: 19, total: 22, rate: '86.4%' }
     ],
     departmentWiseSummary: [
-      { department: 'Housekeeping', present: 26, total: 31, rate: '83.9%' },
-      { department: 'Security', present: 16, total: 16, rate: '100%' },
-      { department: 'Parking', present: 9, total: 9, rate: '100%' },
-      { department: 'Waste Management', present: 12, total: 14, rate: '85.7%' },
-      { department: 'STP Tank Cleaning', present: 7, total: 11, rate: '63.6%' },
-      { department: 'Consumables', present: 4, total: 4, rate: '100%' }
+      { department: 'Housekeeping', present: 45, total: 52, rate: '86.5%' },
+      { department: 'Security', present: 16, total: 18, rate: '88.9%' },
+      { department: 'Parking', present: 5, total: 5, rate: '100%' },
+      { department: 'Waste Management', present: 4, total: 5, rate: '80.0%' },
+      { department: 'STP Tank Cleaning', present: 1, total: 3, rate: '33.3%' },
+      { department: 'Consumables', present: 1, total: 2, rate: '50.0%' }
     ]
   },
 
@@ -794,6 +876,146 @@ const Pagination = ({
   );
 };
 
+// Add Client Dialog Component
+const AddClientDialog = () => {
+  const [open, setOpen] = useState(false);
+  const [formData, setFormData] = useState({
+    companyName: '',
+    contactPerson: '',
+    email: '',
+    phone: '',
+    address: '',
+    services: '',
+    contractStart: '',
+    contractEnd: ''
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    toast.success('Client added successfully');
+    setOpen(false);
+    setFormData({
+      companyName: '',
+      contactPerson: '',
+      email: '',
+      phone: '',
+      address: '',
+      services: '',
+      contractStart: '',
+      contractEnd: ''
+    });
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button className="bg-blue-600 hover:bg-blue-700">
+          <UserPlus className="h-4 w-4 mr-2" />
+          Add Client
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Add New Client</DialogTitle>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="companyName">Company Name</Label>
+              <Input
+                id="companyName"
+                value={formData.companyName}
+                onChange={(e) => setFormData({...formData, companyName: e.target.value})}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="contactPerson">Contact Person</Label>
+              <Input
+                id="contactPerson"
+                value={formData.contactPerson}
+                onChange={(e) => setFormData({...formData, contactPerson: e.target.value})}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="email">Email</Label>
+              <Input
+                id="email"
+                type="email"
+                value={formData.email}
+                onChange={(e) => setFormData({...formData, email: e.target.value})}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="phone">Phone</Label>
+              <Input
+                id="phone"
+                value={formData.phone}
+                onChange={(e) => setFormData({...formData, phone: e.target.value})}
+                required
+              />
+            </div>
+            <div className="space-y-2 col-span-2">
+              <Label htmlFor="address">Address</Label>
+              <Textarea
+                id="address"
+                value={formData.address}
+                onChange={(e) => setFormData({...formData, address: e.target.value})}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="services">Services Required</Label>
+              <Select value={formData.services} onValueChange={(value) => setFormData({...formData, services: value})}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select services" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="housekeeping">Housekeeping</SelectItem>
+                  <SelectItem value="security">Security</SelectItem>
+                  <SelectItem value="parking">Parking</SelectItem>
+                  <SelectItem value="waste-management">Waste Management</SelectItem>
+                  <SelectItem value="complete-facility">Complete Facility Management</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="contractStart">Contract Start Date</Label>
+              <Input
+                id="contractStart"
+                type="date"
+                value={formData.contractStart}
+                onChange={(e) => setFormData({...formData, contractStart: e.target.value})}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="contractEnd">Contract End Date</Label>
+              <Input
+                id="contractEnd"
+                type="date"
+                value={formData.contractEnd}
+                onChange={(e) => setFormData({...formData, contractEnd: e.target.value})}
+                required
+              />
+            </div>
+          </div>
+          <div className="flex justify-end gap-3 pt-4">
+            <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit">
+              Add Client
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
 // Chart color constants
 const CHART_COLORS = {
   present: '#10b981',
@@ -804,6 +1026,7 @@ const CHART_COLORS = {
 
 const SuperAdminDashboard = () => {
   const { onMenuClick } = useOutletContext<{ onMenuClick: () => void }>();
+  const navigate = useNavigate();
   const [stats, setStats] = useState(extendedDummyData.dashboardStats.superadmin);
   const [attendanceReports, setAttendanceReports] = useState(extendedDummyData.attendanceReports);
   const [employeeAttendance, setEmployeeAttendance] = useState(extendedDummyData.employeeAttendance);
@@ -838,6 +1061,19 @@ const SuperAdminDashboard = () => {
   // Search and filter states for Debtors
   const [debtorSearch, setDebtorSearch] = useState('');
   const [debtorStatusFilter, setDebtorStatusFilter] = useState('all');
+
+  // Calculate actual counts from employee data
+  const totalEmployeeCount = employeeAttendance.length;
+  const presentEmployeeCount = employeeAttendance.filter(emp => emp.status === 'present').length;
+  const absentEmployeeCount = employeeAttendance.filter(emp => emp.status === 'absent').length;
+
+  // Update stats with actual counts
+  const updatedStats = {
+    ...stats,
+    totalEmployees: totalEmployeeCount,
+    presentToday: presentEmployeeCount,
+    absentToday: absentEmployeeCount
+  };
 
   // Filter functions for Attendance
   const filteredAttendance = attendanceReports.filter(site =>
@@ -904,6 +1140,45 @@ const SuperAdminDashboard = () => {
     toast.success('Debtors report exported successfully');
   };
 
+  // Navigation handler for View Details
+  const handleViewAttendanceDetails = (siteName: string) => {
+    // Store the selected site in localStorage or context to pre-filter in HRMS
+    localStorage.setItem('selectedSite', siteName);
+    localStorage.setItem('selectedTab', 'attendance');
+    // Navigate to HRMS page
+    navigate('/superadmin/attendaceview');
+  };
+
+  // New function to handle card clicks and navigate to attendance list view
+  const handleEmployeeCardClick = (type: 'total' | 'present' | 'absent') => {
+    // Set the active tab to "list-view" in the attendance management system
+    const attendanceTab = document.querySelector('[data-value="list-view"]') as HTMLElement;
+    if (attendanceTab) {
+      attendanceTab.click();
+    }
+    
+    // Scroll to the attendance management section
+    const attendanceSection = document.querySelector('#attendance-management');
+    if (attendanceSection) {
+      attendanceSection.scrollIntoView({ behavior: 'smooth' });
+    }
+    
+    // Set appropriate filters based on the card clicked
+    switch (type) {
+      case 'total':
+        setStatusFilter('all');
+        break;
+      case 'present':
+        setStatusFilter('present');
+        break;
+      case 'absent':
+        setStatusFilter('absent');
+        break;
+    }
+    
+    toast.success(`Showing ${type} employees in attendance list`);
+  };
+
   // Get unique values for filters
   const uniqueSites = [...new Set(employeeAttendance.map(emp => emp.site))];
   const uniqueDepartments = [...new Set(employeeAttendance.map(emp => emp.department))];
@@ -925,6 +1200,11 @@ const SuperAdminDashboard = () => {
     'STP Tank Cleaning': Droplets,
     'Consumables': ShoppingCart
   };
+
+  // Calculate attendance summary from actual employee data
+  const totalPresent = filteredEmployeeAttendance.filter(emp => emp.status === 'present').length;
+  const totalAbsent = filteredEmployeeAttendance.filter(emp => emp.status === 'absent').length;
+  const totalLate = filteredEmployeeAttendance.filter(emp => emp.lateBy !== '-' && emp.lateBy !== '0 mins').length;
 
   // Prepare site-wise chart data for all sites with responsive labels
   const prepareSiteWiseChartData = useMemo(() => {
@@ -966,44 +1246,6 @@ const SuperAdminDashboard = () => {
     });
   }, [filteredAttendance]);
 
-  // Prepare pie chart data for site distribution
-  const prepareSitePieData = useMemo(() => {
-    return filteredAttendance.map((site, index) => {
-      // Create shortened labels for pie chart
-      const fullSiteName = site.site;
-      let shortLabel = fullSiteName;
-      
-      if (fullSiteName.includes('GLOBAL SQUARE')) {
-        shortLabel = fullSiteName.includes('HOUSEKEEPING') ? 'G.SQ (HK)' : 'G.SQ (SEC)';
-      } else if (fullSiteName.includes('MANGALWAR')) {
-        shortLabel = 'MANGALWAR';
-      } else if (fullSiteName.includes('GANGA TRUENO')) {
-        shortLabel = 'G.TRUENO';
-      } else if (fullSiteName.includes('K.P. BUNGLOW')) {
-        shortLabel = 'K.P.BUNG';
-      } else if (fullSiteName.includes('ALYSSUM')) {
-        shortLabel = 'ALYSSUM';
-      } else if (fullSiteName.includes('ARYA')) {
-        shortLabel = 'ARYA';
-      } else if (fullSiteName.includes('ASTITVA')) {
-        shortLabel = 'ASTITVA';
-      } else {
-        // Generic shortening for other sites
-        shortLabel = fullSiteName.split(',')[0].substring(0, 8);
-      }
-      
-      return {
-        name: shortLabel,
-        fullName: fullSiteName,
-        value: site.present,
-        total: site.totalEmployees,
-        attendanceRate: site.attendanceRate,
-        services: site.services,
-        fill: CHART_COLORS.sites[index % CHART_COLORS.sites.length]
-      };
-    });
-  }, [filteredAttendance]);
-
   // Custom tooltip for bar chart
   const CustomBarTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
@@ -1028,34 +1270,6 @@ const SuperAdminDashboard = () => {
             <p className="flex justify-between">
               <span className="text-blue-600">Attendance Rate:</span>
               <span className="font-medium">{data.attendanceRate}%</span>
-            </p>
-          </div>
-        </div>
-      );
-    }
-    return null;
-  };
-
-  // Custom tooltip for pie chart
-  const CustomPieTooltip = ({ active, payload }: any) => {
-    if (active && payload && payload.length) {
-      const data = payload[0]?.payload;
-      return (
-        <div className="bg-white p-4 border rounded-lg shadow-lg max-w-xs">
-          <p className="font-semibold text-sm mb-2">{data.fullName}</p>
-          <p className="text-xs text-muted-foreground mb-2">{data.services}</p>
-          <div className="space-y-1 text-sm">
-            <p className="flex justify-between">
-              <span className="text-green-600">Present Employees:</span>
-              <span className="font-medium">{data.value}</span>
-            </p>
-            <p className="flex justify-between">
-              <span className="text-gray-600">Total Employees:</span>
-              <span className="font-medium">{data.total}</span>
-            </p>
-            <p className="flex justify-between">
-              <span className="text-blue-600">Attendance Rate:</span>
-              <span className="font-medium">{data.attendanceRate}</span>
             </p>
           </div>
         </div>
@@ -1094,29 +1308,44 @@ const SuperAdminDashboard = () => {
       />
 
       <div className="p-4 sm:p-6 space-y-6">
-        {/* Stats Grid */}
+        {/* Stats Grid - UPDATED WITH CONSISTENT COUNTS */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-          <StatCard
-            title="Total Employees"
-            value={stats.totalEmployees}
-            icon={Users}
-            trend={{ value: 8, isPositive: true }}
-            delay={0}
-          />
-          <StatCard
-            title="Present Today"
-            value={stats.presentToday}
-            icon={UserCheck}
-            trend={{ value: 5, isPositive: true }}
-            delay={0.1}
-          />
-          <StatCard
-            title="Active Machinery"
-            value={activeMachineryCount}
-            icon={Wrench}
-            trend={{ value: 3, isPositive: true }}
-            delay={0.2}
-          />
+          <div 
+            className="cursor-pointer transform transition-all duration-200 hover:scale-105 hover:shadow-lg"
+            onClick={() => handleEmployeeCardClick('total')}
+          >
+            <StatCard
+              title="Total Employees"
+              value={updatedStats.totalEmployees}
+              icon={Users}
+              trend={{ value: 8, isPositive: true }}
+              delay={0}
+            />
+          </div>
+          <div 
+            className="cursor-pointer transform transition-all duration-200 hover:scale-105 hover:shadow-lg"
+            onClick={() => handleEmployeeCardClick('present')}
+          >
+            <StatCard
+              title="Present Today"
+              value={updatedStats.presentToday}
+              icon={UserCheck}
+              trend={{ value: 5, isPositive: true }}
+              delay={0.1}
+            />
+          </div>
+          <div 
+            className="cursor-pointer transform transition-all duration-200 hover:scale-105 hover:shadow-lg"
+            onClick={() => handleEmployeeCardClick('absent')}
+          >
+            <StatCard
+              title="Absent Today"
+              value={updatedStats.absentToday}
+              icon={AlertCircle}
+              trend={{ value: 2, isPositive: false }}
+              delay={0.2}
+            />
+          </div>
           <StatCard
             title="Outstanding Amount"
             value={`₹${(totalOutstanding / 100000).toFixed(1)}L`}
@@ -1125,6 +1354,50 @@ const SuperAdminDashboard = () => {
             delay={0.3}
           />
         </div>
+
+        {/* Quick Actions */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.4 }}
+        >
+          <Card>
+            <CardHeader className="px-4 sm:px-6">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-lg">Quick Actions</CardTitle>
+                <AddClientDialog />
+              </div>
+            </CardHeader>
+            <CardContent className="px-4 sm:px-6">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <Button 
+                  variant="outline" 
+                  className="h-16 flex-col gap-2"
+                  onClick={() => navigate('/superadmin/hrms')}
+                >
+                  <Users className="h-5 w-5" />
+                  <span className="text-sm">HRMS</span>
+                </Button>
+                <Button variant="outline" className="h-16 flex-col gap-2"
+                onClick={() => navigate('/superadmin/erp')}>
+                  <Building2 className="h-5 w-5" />
+                  <span className="text-sm">Sites</span>
+                </Button>
+                <Button variant="outline" className="h-16 flex-col gap-2"
+                onClick={() => navigate('/superadmin/erp')}>
+                  <Wrench className="h-5 w-5" />
+                  <span className="text-sm">Machinery</span>
+                </Button>
+                <Button variant="outline" className="h-16 flex-col gap-2"
+                onClick={() => navigate('/superadmin/billing')}>
+
+                  <DollarSign className="h-5 w-5" />
+                  <span className="text-sm">Finance</span>
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
 
         {/* Department Overview */}
         <motion.div
@@ -1165,11 +1438,12 @@ const SuperAdminDashboard = () => {
           </Card>
         </motion.div>
 
-        {/* Attendance Reports Section */}
+        {/* Attendance Management System */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.5 }}
+          id="attendance-management"
         >
           <Card>
             <CardHeader className="px-4 sm:px-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -1199,24 +1473,20 @@ const SuperAdminDashboard = () => {
               </div>
             </CardHeader>
             <CardContent className="px-4 sm:px-6">
-              <Tabs defaultValue="site-wise" className="w-full">
-                <TabsList className="grid w-full grid-cols-3">
-                  <TabsTrigger value="site-wise" className="flex items-center gap-2 text-xs sm:text-sm">
-                    <Building2 className="h-3 w-3 sm:h-4 sm:w-4" />
-                    Site-wise
-                  </TabsTrigger>
-                  <TabsTrigger value="employee-wise" className="flex items-center gap-2 text-xs sm:text-sm">
-                    <UsersIcon className="h-3 w-3 sm:h-4 sm:w-4" />
-                    Employee-wise
-                  </TabsTrigger>
-                  <TabsTrigger value="daily-summary" className="flex items-center gap-2 text-xs sm:text-sm">
+              <Tabs defaultValue="site-overview" className="w-full">
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="site-overview" className="flex items-center gap-2 text-xs sm:text-sm">
                     <BarChart3 className="h-3 w-3 sm:h-4 sm:w-4" />
-                    Daily Summary
+                    Site Overview
+                  </TabsTrigger>
+                  <TabsTrigger value="list-view" className="flex items-center gap-2 text-xs sm:text-sm">
+                    <List className="h-3 w-3 sm:h-4 sm:w-4" />
+                    List View
                   </TabsTrigger>
                 </TabsList>
 
-                {/* Site-wise Attendance Tab */}
-                <TabsContent value="site-wise" className="space-y-4">
+                {/* Site Overview Tab */}
+                <TabsContent value="site-overview" className="space-y-4">
                   <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                     <div className="flex items-center gap-4 flex-1 w-full">
                       <div className="flex items-center gap-2 flex-1">
@@ -1235,157 +1505,275 @@ const SuperAdminDashboard = () => {
                     </Button>
                   </div>
 
-                  {/* Site-wise Charts Section */}
-                  <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 sm:gap-6 mb-6">
-                    {/* Bar Chart - Site-wise Attendance */}
-                    <Card className="xl:col-span-1">
-                      <CardHeader className="pb-4 px-4 sm:px-6">
-                        <CardTitle className="text-base sm:text-lg">Site-wise Attendance Overview</CardTitle>
-                        <p className="text-xs sm:text-sm text-muted-foreground">
-                          Present vs Absent employees across all sites
-                        </p>
-                      </CardHeader>
-                      <CardContent className="px-2 sm:px-4">
-                        <div className="w-full h-64 sm:h-80 lg:h-96">
-                          <ResponsiveContainer width="100%" height="100%">
-                            <BarChart
-                              data={prepareSiteWiseChartData}
-                              margin={{ top: 20, right: 30, left: 20, bottom: 80 }}
-                              barSize={30}
-                            >
-                              <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-                              <XAxis 
-                                dataKey="name" 
-                                tick={<CustomizedAxisTick />}
-                                interval={0}
-                                height={80}
-                              />
-                              <YAxis 
-                                fontSize={12} 
-                                tick={{ fill: '#6b7280' }}
-                                width={40}
-                              />
-                              <Tooltip content={<CustomBarTooltip />} />
-                              <Legend 
-                                wrapperStyle={{ 
-                                  paddingTop: '20px',
-                                  fontSize: '12px'
-                                }}
-                              />
-                              <Bar 
-                                dataKey="present" 
-                                name="Present Employees" 
-                                fill={CHART_COLORS.present} 
-                                radius={[4, 4, 0, 0]}
-                              />
-                              <Bar 
-                                dataKey="absent" 
-                                name="Absent Employees" 
-                                fill={CHART_COLORS.absent} 
-                                radius={[4, 4, 0, 0]}
-                              />
-                            </BarChart>
-                          </ResponsiveContainer>
+                  {/* Attendance Summary Cards - UPDATED WITH CONSISTENT COUNTS */}
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                    <Card 
+                      className="cursor-pointer transform transition-all duration-200 hover:scale-105 hover:shadow-md border-2 border-blue-200"
+                      onClick={() => handleEmployeeCardClick('total')}
+                    >
+                      <CardContent className="p-4">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-medium">Total Employees</p>
+                            <p className="text-2xl font-bold">{updatedStats.totalEmployees}</p>
+                          </div>
+                          <UsersIcon className="h-8 w-8 text-blue-600" />
                         </div>
                       </CardContent>
                     </Card>
-
-                    {/* Pie Chart - Site Distribution */}
-                    <Card className="xl:col-span-1">
-                      <CardHeader className="pb-4 px-4 sm:px-6">
-                        <CardTitle className="text-base sm:text-lg">Workforce Distribution by Site</CardTitle>
-                        <p className="text-xs sm:text-sm text-muted-foreground">
-                          Employee distribution across different sites
-                        </p>
-                      </CardHeader>
-                      <CardContent className="px-2 sm:px-4">
-                        <div className="w-full h-64 sm:h-80 lg:h-96">
-                          <ResponsiveContainer width="100%" height="100%">
-                            <PieChart>
-                              <Pie
-                                data={prepareSitePieData}
-                                cx="50%"
-                                cy="50%"
-                                labelLine={false}
-                                label={({ name, percent }) => `${name}\n${(percent * 100).toFixed(1)}%`}
-                                outerRadius={80}
-                                innerRadius={40}
-                                fill="#8884d8"
-                                dataKey="value"
-                                paddingAngle={2}
-                              >
-                                {prepareSitePieData.map((entry, index) => (
-                                  <Cell 
-                                    key={`cell-${index}`} 
-                                    fill={entry.fill}
-                                    stroke="#ffffff"
-                                    strokeWidth={2}
-                                  />
-                                ))}
-                              </Pie>
-                              <Tooltip content={<CustomPieTooltip />} />
-                              <Legend 
-                                wrapperStyle={{ 
-                                  paddingTop: '10px',
-                                  fontSize: '11px'
-                                }}
-                                layout="horizontal"
-                                verticalAlign="bottom"
-                                align="center"
-                              />
-                            </PieChart>
-                          </ResponsiveContainer>
+                    <Card 
+                      className="cursor-pointer transform transition-all duration-200 hover:scale-105 hover:shadow-md border-2 border-green-200"
+                      onClick={() => handleEmployeeCardClick('present')}
+                    >
+                      <CardContent className="p-4">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-medium">Present</p>
+                            <p className="text-2xl font-bold text-green-600">{updatedStats.presentToday}</p>
+                          </div>
+                          <UserCheck className="h-8 w-8 text-green-600" />
+                        </div>
+                      </CardContent>
+                    </Card>
+                    <Card 
+                      className="cursor-pointer transform transition-all duration-200 hover:scale-105 hover:shadow-md border-2 border-red-200"
+                      onClick={() => handleEmployeeCardClick('absent')}
+                    >
+                      <CardContent className="p-4">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-medium">Absent</p>
+                            <p className="text-2xl font-bold text-red-600">{updatedStats.absentToday}</p>
+                          </div>
+                          <AlertCircle className="h-8 w-8 text-red-600" />
+                        </div>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardContent className="p-4">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-medium">Late Arrivals</p>
+                            <p className="text-2xl font-bold text-orange-600">{totalLate}</p>
+                          </div>
+                          <Clock className="h-8 w-8 text-orange-600" />
                         </div>
                       </CardContent>
                     </Card>
                   </div>
 
-                  {/* Attendance Table */}
-                  <div className="rounded-md border">
+                  {/* Enhanced Bar Chart */}
+                  <Card className="border-2 border-blue-100 bg-gradient-to-br from-blue-50 to-white shadow-lg">
+                    <CardHeader className="pb-4 px-4 sm:px-6">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <CardTitle className="text-lg sm:text-xl font-bold text-gray-800 flex items-center gap-2">
+                            <TrendingUp className="h-5 w-5 text-blue-600" />
+                            Site-wise Attendance Distribution
+                          </CardTitle>
+                          <p className="text-sm text-muted-foreground mt-1">
+                            Visual representation of present vs absent employees across all sites
+                          </p>
+                        </div>
+                        <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                          {dateRange.start}
+                        </Badge>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="px-2 sm:px-4">
+                      <div className="w-full h-72 sm:h-80 lg:h-96 bg-white rounded-lg p-2 border border-blue-100">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart
+                            data={prepareSiteWiseChartData}
+                            margin={{ top: 20, right: 30, left: 40, bottom: 80 }}
+                            barSize={35}
+                            barGap={4}
+                            barCategoryGap={8}
+                          >
+                            <defs>
+                              <linearGradient id="presentGradient" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stopColor="#10b981" stopOpacity={0.9}/>
+                                <stop offset="100%" stopColor="#059669" stopOpacity={0.8}/>
+                              </linearGradient>
+                              <linearGradient id="absentGradient" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stopColor="#ef4444" stopOpacity={0.9}/>
+                                <stop offset="100%" stopColor="#dc2626" stopOpacity={0.8}/>
+                              </linearGradient>
+                            </defs>
+                            <CartesianGrid 
+                              strokeDasharray="3 3" 
+                              stroke="#f3f4f6" 
+                              vertical={false}
+                              strokeOpacity={0.6}
+                            />
+                            <XAxis 
+                              dataKey="name" 
+                              tick={<CustomizedAxisTick />}
+                              interval={0}
+                              height={80}
+                              axisLine={{ stroke: '#e5e7eb' }}
+                              tickLine={{ stroke: '#e5e7eb' }}
+                            />
+                            <YAxis 
+                              fontSize={12} 
+                              tick={{ fill: '#6b7280' }}
+                              width={45}
+                              axisLine={{ stroke: '#e5e7eb' }}
+                              tickLine={{ stroke: '#e5e7eb' }}
+                              tickFormatter={(value) => `${value}`}
+                            />
+                            <Tooltip 
+                              content={<CustomBarTooltip />}
+                              cursor={{ fill: 'rgba(243, 244, 246, 0.5)' }}
+                            />
+                            <Legend 
+                              wrapperStyle={{ 
+                                paddingTop: '20px',
+                                fontSize: '12px',
+                                fontWeight: '500'
+                              }}
+                              iconSize={10}
+                              iconType="circle"
+                            />
+                            <Bar 
+                              dataKey="present" 
+                              name="Present Employees" 
+                              fill="url(#presentGradient)" 
+                              radius={[6, 6, 0, 0]}
+                              stroke="#059669"
+                              strokeWidth={1}
+                            />
+                            <Bar 
+                              dataKey="absent" 
+                              name="Absent Employees" 
+                              fill="url(#absentGradient)" 
+                              radius={[6, 6, 0, 0]}
+                              stroke="#dc2626"
+                              strokeWidth={1}
+                            />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                      <div className="flex items-center justify-center gap-6 mt-4 text-xs text-muted-foreground">
+                        <div className="flex items-center gap-2">
+                          <div className="w-3 h-3 bg-gradient-to-b from-green-500 to-green-600 rounded-full"></div>
+                          <span>Present Employees</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="w-3 h-3 bg-gradient-to-b from-red-500 to-red-600 rounded-full"></div>
+                          <span>Absent Employees</span>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+
+                {/* List View Tab */}
+                <TabsContent value="list-view" className="space-y-4">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                    <div className="flex items-center gap-4 flex-1 w-full">
+                      <div className="flex items-center gap-2 flex-1">
+                        <Search className="h-4 w-4 text-muted-foreground" />
+                        <Input
+                          placeholder="Search by site name..."
+                          value={attendanceSearch}
+                          onChange={(e) => setAttendanceSearch(e.target.value)}
+                          className="w-full sm:w-64"
+                        />
+                      </div>
+                    </div>
+                    <Button variant="outline" size="sm" onClick={() => handleExportAttendance('Site-wise')} className="w-full sm:w-auto">
+                      <Download className="h-4 w-4 mr-2" />
+                      Export
+                    </Button>
+                  </div>
+
+                  {/* Additional Filters for Employee List */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="site-filter" className="text-sm">Filter by Site</Label>
+                      <Select value={siteFilter} onValueChange={setSiteFilter}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="All Sites" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Sites</SelectItem>
+                          {uniqueSites.map(site => (
+                            <SelectItem key={site} value={site}>{site}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="department-filter" className="text-sm">Filter by Department</Label>
+                      <Select value={departmentFilter} onValueChange={setDepartmentFilter}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="All Departments" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Departments</SelectItem>
+                          {uniqueDepartments.map(dept => (
+                            <SelectItem key={dept} value={dept}>{dept}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="status-filter" className="text-sm">Filter by Status</Label>
+                      <Select value={statusFilter} onValueChange={setStatusFilter}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="All Status" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Status</SelectItem>
+                          <SelectItem value="present">Present</SelectItem>
+                          <SelectItem value="absent">Absent</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  {/* Site-wise Attendance Table */}
+                  <div className="rounded-md border shadow-sm">
                     <div className="overflow-x-auto">
                       <Table>
-                        <TableHeader>
+                        <TableHeader className="bg-gray-50">
                           <TableRow>
-                            <TableHead className="min-w-[200px]">Site Name</TableHead>
-                            <TableHead className="min-w-[120px]">Services</TableHead>
-                            <TableHead className="min-w-[100px]">Date</TableHead>
-                            <TableHead className="min-w-[80px]">Total</TableHead>
-                            <TableHead className="min-w-[80px]">Present</TableHead>
-                            <TableHead className="min-w-[80px]">Absent</TableHead>
-                            <TableHead className="min-w-[80px]">Late</TableHead>
-                            <TableHead className="min-w-[100px]">Early Departures</TableHead>
-                            <TableHead className="min-w-[100px]">Attendance Rate</TableHead>
-                            <TableHead className="min-w-[80px]">Shortage</TableHead>
+                            <TableHead className="min-w-[200px] font-semibold text-gray-900">Site Name</TableHead>
+                            <TableHead className="min-w-[120px] font-semibold text-gray-900">Services</TableHead>
+                            <TableHead className="min-w-[100px] font-semibold text-gray-900">Date</TableHead>
+                            <TableHead className="min-w-[80px] font-semibold text-gray-900">Total</TableHead>
+                            <TableHead className="min-w-[80px] font-semibold text-gray-900">Present</TableHead>
+                            <TableHead className="min-w-[80px] font-semibold text-gray-900">Absent</TableHead>
+                            <TableHead className="min-w-[80px] font-semibold text-gray-900">Late</TableHead>
+                            <TableHead className="min-w-[100px] font-semibold text-gray-900">Attendance Rate</TableHead>
+                            <TableHead className="min-w-[80px] font-semibold text-gray-900">Shortage</TableHead>
+                            <TableHead className="min-w-[100px] font-semibold text-gray-900">Action</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {paginatedAttendance.map((site) => (
-                            <TableRow key={site.id} className="hover:bg-muted/50">
+                          {paginatedAttendance.map((site, index) => (
+                            <TableRow key={site.id} className={`hover:bg-gray-50/80 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}>
                               <TableCell className="font-medium min-w-[200px]">
                                 <div>
-                                  <p className="font-semibold text-sm">{site.site.split(',')[0]}</p>
+                                  <p className="font-semibold text-sm text-gray-900">{site.site.split(',')[0]}</p>
                                   <p className="text-xs text-muted-foreground">
                                     {site.site.split(',').slice(1).join(',')}
                                   </p>
                                 </div>
                               </TableCell>
                               <TableCell className="min-w-[120px]">
-                                <Badge variant="outline" className="text-xs bg-blue-50">
+                                <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
                                   {site.services}
                                 </Badge>
                               </TableCell>
-                              <TableCell className="min-w-[100px]">{site.date}</TableCell>
-                              <TableCell className="min-w-[80px] font-medium">{site.totalEmployees}</TableCell>
+                              <TableCell className="min-w-[100px] text-sm">{site.date}</TableCell>
+                              <TableCell className="min-w-[80px] font-medium text-gray-900">{site.totalEmployees}</TableCell>
                               <TableCell className="min-w-[80px] text-green-600 font-semibold">{site.present}</TableCell>
                               <TableCell className="min-w-[80px] text-red-600 font-semibold">{site.absent}</TableCell>
                               <TableCell className="min-w-[80px]">
-                                <Badge variant="outline" className="text-orange-600 border-orange-200 text-xs">
+                                <Badge variant="outline" className="text-orange-600 border-orange-200 bg-orange-50 text-xs">
                                   {site.lateArrivals}
-                                </Badge>
-                              </TableCell>
-                              <TableCell className="min-w-[100px]">
-                                <Badge variant="outline" className="text-orange-600 border-orange-200 text-xs">
-                                  {site.earlyDepartures}
                                 </Badge>
                               </TableCell>
                               <TableCell className="min-w-[100px]">
@@ -1397,6 +1785,17 @@ const SuperAdminDashboard = () => {
                                 </Badge>
                               </TableCell>
                               <TableCell className="min-w-[80px] text-red-600 font-semibold">{site.shortage}</TableCell>
+                              <TableCell className="min-w-[100px]">
+                                <Button 
+                                  variant="outline" 
+                                  size="sm" 
+                                  className="text-xs bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200"
+                                  onClick={() => handleViewAttendanceDetails(site.site)}
+                                >
+                                  <Eye className="h-3 w-3 mr-1" />
+                                  View Details
+                                </Button>
+                              </TableCell>
                             </TableRow>
                           ))}
                         </TableBody>
@@ -1411,325 +1810,6 @@ const SuperAdminDashboard = () => {
                     totalItems={filteredAttendance.length}
                     itemsPerPage={itemsPerPage}
                   />
-                </TabsContent>
-
-                {/* Employee-wise Attendance Tab */}
-                <TabsContent value="employee-wise" className="space-y-4">
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 flex-1 w-full">
-                      <div className="flex items-center gap-2 flex-1 w-full sm:w-64">
-                        <Search className="h-4 w-4 text-muted-foreground" />
-                        <Input
-                          placeholder="Search by employee name..."
-                          value={employeeSearch}
-                          onChange={(e) => setEmployeeSearch(e.target.value)}
-                          className="w-full"
-                        />
-                      </div>
-                      <div className="flex flex-wrap gap-2 w-full sm:w-auto">
-                        <Select value={siteFilter} onValueChange={setSiteFilter}>
-                          <SelectTrigger className="w-full sm:w-40">
-                            <SelectValue placeholder="All Sites" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="all">All Sites</SelectItem>
-                            {uniqueSites.map(site => (
-                              <SelectItem key={site} value={site}>{site}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <Select value={departmentFilter} onValueChange={setDepartmentFilter}>
-                          <SelectTrigger className="w-full sm:w-40">
-                            <SelectValue placeholder="All Departments" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="all">All Departments</SelectItem>
-                            {uniqueDepartments.map(dept => (
-                              <SelectItem key={dept} value={dept}>{dept}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <Select value={statusFilter} onValueChange={setStatusFilter}>
-                          <SelectTrigger className="w-full sm:w-40">
-                            <SelectValue placeholder="All Status" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="all">All Status</SelectItem>
-                            <SelectItem value="present">Present</SelectItem>
-                            <SelectItem value="absent">Absent</SelectItem>
-                            <SelectItem value="half-day">Half Day</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </div>
-                    <Button variant="outline" size="sm" onClick={() => handleExportAttendance('Employee-wise')} className="w-full sm:w-auto">
-                      <Download className="h-4 w-4 mr-2" />
-                      Export
-                    </Button>
-                  </div>
-
-                  <div className="rounded-md border">
-                    <div className="overflow-x-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead className="min-w-[100px]">Employee ID</TableHead>
-                            <TableHead className="min-w-[120px]">Name</TableHead>
-                            <TableHead className="min-w-[120px]">Department</TableHead>
-                            <TableHead className="min-w-[150px]">Site</TableHead>
-                            <TableHead className="min-w-[100px]">Date</TableHead>
-                            <TableHead className="min-w-[100px]">Check In</TableHead>
-                            <TableHead className="min-w-[100px]">Check Out</TableHead>
-                            <TableHead className="min-w-[100px]">Status</TableHead>
-                            <TableHead className="min-w-[100px]">Late By</TableHead>
-                            <TableHead className="min-w-[120px]">Early Departure</TableHead>
-                            <TableHead className="min-w-[100px]">Total Hours</TableHead>
-                            <TableHead className="min-w-[100px]">Overtime</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {paginatedEmployeeAttendance.map((employee) => {
-                            const IconComponent = departmentIcons[employee.department as keyof typeof departmentIcons] || Users;
-                            return (
-                              <TableRow key={employee.id} className="hover:bg-muted/50">
-                                <TableCell className="font-medium min-w-[100px]">{employee.employeeId}</TableCell>
-                                <TableCell className="font-medium min-w-[120px]">{employee.name}</TableCell>
-                                <TableCell className="min-w-[120px]">
-                                  <div className="flex items-center gap-2">
-                                    <IconComponent className="h-4 w-4 text-muted-foreground" />
-                                    {employee.department}
-                                  </div>
-                                </TableCell>
-                                <TableCell className="min-w-[150px]">
-                                  <div>
-                                    <p className="text-sm font-medium">{employee.site.split(',')[0]}</p>
-                                    <p className="text-xs text-muted-foreground">
-                                      {employee.site.split(',').slice(1).join(',')}
-                                    </p>
-                                  </div>
-                                </TableCell>
-                                <TableCell className="min-w-[100px]">{employee.date}</TableCell>
-                                <TableCell className="min-w-[100px]">
-                                  <div className={`flex items-center gap-1 ${
-                                    employee.checkIn !== '-' && employee.checkIn > '09:00 AM' ? 'text-orange-600' : 'text-green-600'
-                                  }`}>
-                                    <Clock className="h-3 w-3" />
-                                    {employee.checkIn}
-                                  </div>
-                                </TableCell>
-                                <TableCell className="min-w-[100px]">
-                                  <div className={`flex items-center gap-1 ${
-                                    employee.checkOut !== '-' && employee.checkOut < '06:00 PM' ? 'text-orange-600' : 'text-green-600'
-                                  }`}>
-                                    <Clock className="h-3 w-3" />
-                                    {employee.checkOut}
-                                  </div>
-                                </TableCell>
-                                <TableCell className="min-w-[100px]">
-                                  <Badge variant={
-                                    employee.status === 'present' ? 'default' :
-                                    employee.status === 'absent' ? 'destructive' : 'secondary'
-                                  } className="text-xs">
-                                    {employee.status}
-                                  </Badge>
-                                </TableCell>
-                                <TableCell className="min-w-[100px]">
-                                  <span className={employee.lateBy !== '-' && employee.lateBy !== '0 mins' ? 'text-orange-600 font-medium text-xs' : 'text-green-600 text-xs'}>
-                                    {employee.lateBy}
-                                  </span>
-                                </TableCell>
-                                <TableCell className="min-w-[120px]">
-                                  <span className={employee.earlyDeparture !== '-' && employee.earlyDeparture !== '0 mins' ? 'text-orange-600 font-medium text-xs' : 'text-green-600 text-xs'}>
-                                    {employee.earlyDeparture}
-                                  </span>
-                                </TableCell>
-                                <TableCell className="min-w-[100px] font-medium text-xs">{employee.totalHours}</TableCell>
-                                <TableCell className="min-w-[100px]">
-                                  <span className={employee.overtime !== '0 mins' ? 'text-blue-600 font-medium text-xs' : 'text-gray-600 text-xs'}>
-                                    {employee.overtime}
-                                  </span>
-                                </TableCell>
-                              </TableRow>
-                            );
-                          })}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  </div>
-
-                  <Pagination
-                    currentPage={employeePage}
-                    totalPages={employeeTotalPages}
-                    onPageChange={setEmployeePage}
-                    totalItems={filteredEmployeeAttendance.length}
-                    itemsPerPage={itemsPerPage}
-                  />
-
-                  {/* Employee Attendance Summary Cards */}
-                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                    <Card>
-                      <CardContent className="p-4">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="text-sm font-medium">Total Employees</p>
-                            <p className="text-2xl font-bold">{filteredEmployeeAttendance.length}</p>
-                          </div>
-                          <UsersIcon className="h-8 w-8 text-blue-600" />
-                        </div>
-                      </CardContent>
-                    </Card>
-                    <Card>
-                      <CardContent className="p-4">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="text-sm font-medium">Present</p>
-                            <p className="text-2xl font-bold text-green-600">
-                              {filteredEmployeeAttendance.filter(emp => emp.status === 'present').length}
-                            </p>
-                          </div>
-                          <UserCheck className="h-8 w-8 text-green-600" />
-                        </div>
-                      </CardContent>
-                    </Card>
-                    <Card>
-                      <CardContent className="p-4">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="text-sm font-medium">Absent</p>
-                            <p className="text-2xl font-bold text-red-600">
-                              {filteredEmployeeAttendance.filter(emp => emp.status === 'absent').length}
-                            </p>
-                          </div>
-                          <AlertCircle className="h-8 w-8 text-red-600" />
-                        </div>
-                      </CardContent>
-                    </Card>
-                    <Card>
-                      <CardContent className="p-4">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="text-sm font-medium">Late Arrivals</p>
-                            <p className="text-2xl font-bold text-orange-600">
-                              {filteredEmployeeAttendance.filter(emp => emp.lateBy !== '-' && emp.lateBy !== '0 mins').length}
-                            </p>
-                          </div>
-                          <Clock className="h-8 w-8 text-orange-600" />
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </div>
-                </TabsContent>
-
-                {/* Daily Summary Tab */}
-                <TabsContent value="daily-summary" className="space-y-6">
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                    <div>
-                      <h3 className="text-lg font-semibold">Daily Attendance Summary - {dailySummary.date}</h3>
-                      <p className="text-sm text-muted-foreground">Overall organization attendance overview</p>
-                    </div>
-                    <Button variant="outline" size="sm" onClick={() => handleExportAttendance('Daily Summary')} className="w-full sm:w-auto">
-                      <Download className="h-4 w-4 mr-2" />
-                      Export
-                    </Button>
-                  </div>
-
-                  {/* Summary Cards */}
-                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                    <Card>
-                      <CardContent className="p-4 text-center">
-                        <div className="text-2xl font-bold text-green-600">{dailySummary.present}</div>
-                        <div className="text-sm text-muted-foreground">Present</div>
-                      </CardContent>
-                    </Card>
-                    <Card>
-                      <CardContent className="p-4 text-center">
-                        <div className="text-2xl font-bold text-red-600">{dailySummary.absent}</div>
-                        <div className="text-sm text-muted-foreground">Absent</div>
-                      </CardContent>
-                    </Card>
-                    <Card>
-                      <CardContent className="p-4 text-center">
-                        <div className="text-2xl font-bold text-orange-600">{dailySummary.lateArrivals}</div>
-                        <div className="text-sm text-muted-foreground">Late Arrivals</div>
-                      </CardContent>
-                    </Card>
-                    <Card>
-                      <CardContent className="p-4 text-center">
-                        <div className="text-2xl font-bold text-blue-600">{dailySummary.overallAttendance}</div>
-                        <div className="text-sm text-muted-foreground">Overall Rate</div>
-                      </CardContent>
-                    </Card>
-                  </div>
-
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {/* Site-wise Summary */}
-                    <Card>
-                      <CardHeader>
-                        <CardTitle className="text-sm">Site-wise Attendance</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="space-y-4 max-h-96 overflow-y-auto pr-2">
-                          {dailySummary.siteWiseSummary.map((site, index) => (
-                            <div key={index} className="space-y-2">
-                              <div className="flex items-center justify-between text-sm">
-                                <span className="font-medium">{site.site}</span>
-                                <span className={parseFloat(site.rate) > 85 ? "text-green-600" : "text-orange-600"}>
-                                  {site.present}/{site.total} ({site.rate})
-                                </span>
-                              </div>
-                              <div className="w-full bg-gray-200 rounded-full h-2">
-                                <div 
-                                  className={`h-2 rounded-full ${
-                                    parseFloat(site.rate) > 90 ? "bg-green-600" :
-                                    parseFloat(site.rate) > 85 ? "bg-blue-600" :
-                                    parseFloat(site.rate) > 80 ? "bg-orange-500" : "bg-red-600"
-                                  }`}
-                                  style={{ width: site.rate }}
-                                ></div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </CardContent>
-                    </Card>
-
-                    {/* Department-wise Summary */}
-                    <Card>
-                      <CardHeader>
-                        <CardTitle className="text-sm">Department-wise Attendance</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="space-y-4 max-h-96 overflow-y-auto pr-2">
-                          {dailySummary.departmentWiseSummary.map((dept, index) => {
-                            const IconComponent = departmentIcons[dept.department as keyof typeof departmentIcons] || Users;
-                            return (
-                              <div key={index} className="space-y-2">
-                                <div className="flex items-center justify-between text-sm">
-                                  <div className="flex items-center gap-2">
-                                    <IconComponent className="h-4 w-4 text-muted-foreground" />
-                                    <span className="font-medium">{dept.department}</span>
-                                  </div>
-                                  <span className={parseFloat(dept.rate) > 85 ? "text-green-600" : "text-orange-600"}>
-                                    {dept.present}/{dept.total} ({dept.rate})
-                                  </span>
-                                </div>
-                                <div className="w-full bg-gray-200 rounded-full h-2">
-                                  <div 
-                                    className={`h-2 rounded-full ${
-                                      parseFloat(dept.rate) > 90 ? "bg-green-600" :
-                                      parseFloat(dept.rate) > 85 ? "bg-blue-600" :
-                                      parseFloat(dept.rate) > 80 ? "bg-orange-500" : "bg-red-600"
-                                    }`}
-                                    style={{ width: dept.rate }}
-                                  ></div>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </div>
                 </TabsContent>
               </Tabs>
             </CardContent>
@@ -1750,143 +1830,75 @@ const SuperAdminDashboard = () => {
                   All facility management machinery with current status and detailed remarks
                 </p>
               </div>
-              <Button variant="outline" size="sm" onClick={handleExportMachinery} className="w-full sm:w-auto">
-                <Download className="h-4 w-4 mr-2" />
-                Export Report
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" className="w-full sm:w-auto"
+                onClick={() => navigate('/superadmin/erp')}>
+                  View Details
+                </Button>
+                <Button variant="outline" size="sm" onClick={handleExportMachinery} className="w-full sm:w-auto">
+                  <Download className="h-4 w-4 mr-2" />
+                  Export Report
+                </Button>
+              </div>
             </CardHeader>
             <CardContent className="px-4 sm:px-6">
-              {/* Filters */}
-              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 mb-6">
-                <div className="flex items-center gap-2 flex-1 w-full">
-                  <Search className="h-4 w-4 text-muted-foreground" />
-                  <Input
-                    placeholder="Search machinery by name..."
-                    value={machinerySearch}
-                    onChange={(e) => setMachinerySearch(e.target.value)}
-                    className="w-full sm:w-64"
-                  />
-                </div>
-                <div className="flex flex-wrap gap-2 w-full sm:w-auto">
-                  <Select value={machineryStatusFilter} onValueChange={setMachineryStatusFilter}>
-                    <SelectTrigger className="w-full sm:w-40">
-                      <SelectValue placeholder="All Status" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Status</SelectItem>
-                      <SelectItem value="active">Active</SelectItem>
-                      <SelectItem value="maintenance">Under Maintenance</SelectItem>
-                      <SelectItem value="idle">Idle</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Select value={machinerySiteFilter} onValueChange={setMachinerySiteFilter}>
-                    <SelectTrigger className="w-full sm:w-40">
-                      <SelectValue placeholder="All Sites" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Sites</SelectItem>
-                      {uniqueMachinerySites.map(site => (
-                        <SelectItem key={site} value={site}>{site}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Select value={machineryTypeFilter} onValueChange={setMachineryTypeFilter}>
-                    <SelectTrigger className="w-full sm:w-40">
-                      <SelectValue placeholder="All Types" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Types</SelectItem>
-                      {uniqueTypes.map(type => (
-                        <SelectItem key={type} value={type}>{type}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+              {/* Machinery Status Overview */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                <Card className="bg-green-50 border-green-200">
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-green-800">Active Machinery</p>
+                        <p className="text-2xl font-bold text-green-600">{activeMachineryCount}</p>
+                        <p className="text-xs text-green-600">Ready for operation</p>
+                      </div>
+                      <CheckCircle2 className="h-8 w-8 text-green-600" />
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card className="bg-orange-50 border-orange-200">
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-orange-800">Under Maintenance</p>
+                        <p className="text-2xl font-bold text-orange-600">{maintenanceMachineryCount}</p>
+                        <p className="text-xs text-orange-600">Being serviced</p>
+                      </div>
+                      <Settings className="h-8 w-8 text-orange-600" />
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card className="bg-blue-50 border-blue-200">
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-blue-800">Idle Machinery</p>
+                        <p className="text-2xl font-bold text-blue-600">{idleMachineryCount}</p>
+                        <p className="text-xs text-blue-600">Awaiting assignment</p>
+                      </div>
+                      <Package className="h-8 w-8 text-blue-600" />
+                    </div>
+                  </CardContent>
+                </Card>
               </div>
 
-             {/* Machinery Status Overview */}
-<div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-  {/* Active Machinery */}
-  <Card className="bg-green-50 border-green-200 dark:bg-green-900 dark:border-green-700">
-    <CardContent className="p-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm font-medium text-green-800 dark:text-green-200">
-            Active Machinery
-          </p>
-          <p className="text-2xl font-bold text-green-600 dark:text-green-300">
-            {activeMachineryCount}
-          </p>
-          <p className="text-xs text-green-600 dark:text-green-400">
-            Ready for operation
-          </p>
-        </div>
-        <CheckCircle2 className="h-8 w-8 text-green-600 dark:text-green-300" />
-      </div>
-    </CardContent>
-  </Card>
-
-  {/* Under Maintenance */}
-  <Card className="bg-orange-50 border-orange-200 dark:bg-orange-900 dark:border-orange-700">
-    <CardContent className="p-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm font-medium text-orange-800 dark:text-orange-200">
-            Under Maintenance
-          </p>
-          <p className="text-2xl font-bold text-orange-600 dark:text-orange-300">
-            {maintenanceMachineryCount}
-          </p>
-          <p className="text-xs text-orange-600 dark:text-orange-400">
-            Being serviced
-          </p>
-        </div>
-        <Settings className="h-8 w-8 text-orange-600 dark:text-orange-300" />
-      </div>
-    </CardContent>
-  </Card>
-
-  {/* Idle Machinery */}
-  <Card className="bg-blue-50 border-blue-200 dark:bg-blue-900 dark:border-blue-700">
-    <CardContent className="p-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm font-medium text-blue-800 dark:text-blue-200">
-            Idle Machinery
-          </p>
-          <p className="text-2xl font-bold text-blue-600 dark:text-blue-300">
-            {idleMachineryCount}
-          </p>
-          <p className="text-xs text-blue-600 dark:text-blue-400">
-            Awaiting assignment
-          </p>
-        </div>
-        <Package className="h-8 w-8 text-blue-600 dark:text-blue-300" />
-      </div>
-    </CardContent>
-  </Card>
-</div>
-
-              {/* Machinery Table */}
+              {/* Quick Machinery Table */}
               <div className="rounded-md border">
                 <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
                       <TableRow>
                         <TableHead className="min-w-[100px]">Machinery ID</TableHead>
-                        <TableHead className="min-w-[150px]">Name & Model</TableHead>
+                        <TableHead className="min-w-[150px]">Name</TableHead>
                         <TableHead className="min-w-[120px]">Type</TableHead>
                         <TableHead className="min-w-[150px]">Site</TableHead>
                         <TableHead className="min-w-[100px]">Status</TableHead>
                         <TableHead className="min-w-[120px]">Operator</TableHead>
-                        <TableHead className="min-w-[120px]">Last Maintenance</TableHead>
                         <TableHead className="min-w-[120px]">Next Maintenance</TableHead>
-                        <TableHead className="min-w-[100px]">Hours Operated</TableHead>
-                        <TableHead className="min-w-[200px]">Remarks</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {paginatedMachinery.map((machine) => (
+                      {paginatedMachinery.slice(0, 3).map((machine) => (
                         <TableRow key={machine.id} className="hover:bg-muted/50">
                           <TableCell className="font-medium min-w-[100px]">{machine.machineryId}</TableCell>
                           <TableCell className="min-w-[150px]">
@@ -1918,19 +1930,12 @@ const SuperAdminDashboard = () => {
                               <div className="text-sm text-muted-foreground">{machine.operatorPhone}</div>
                             </div>
                           </TableCell>
-                          <TableCell className="min-w-[120px]">{machine.lastMaintenance}</TableCell>
                           <TableCell className="min-w-[120px]">
                             <div className={`font-medium ${
                               new Date(machine.nextMaintenance) < new Date() ? 'text-red-600' :
                               'text-green-600'
                             }`}>
                               {machine.nextMaintenance}
-                            </div>
-                          </TableCell>
-                          <TableCell className="min-w-[100px]">{machine.hoursOperated.toLocaleString()} hrs</TableCell>
-                          <TableCell className="min-w-[200px] max-w-[200px]">
-                            <div className="text-sm text-muted-foreground truncate" title={machine.remarks}>
-                              {machine.remarks.length > 80 ? machine.remarks.substring(0, 80) + '...' : machine.remarks}
                             </div>
                           </TableCell>
                         </TableRow>
@@ -1940,84 +1945,11 @@ const SuperAdminDashboard = () => {
                 </div>
               </div>
 
-              <Pagination
-                currentPage={machineryPage}
-                totalPages={machineryTotalPages}
-                onPageChange={setMachineryPage}
-                totalItems={filteredMachinery.length}
-                itemsPerPage={itemsPerPage}
-              />
-
-              {/* Detailed Machinery Cards */}
-              <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {paginatedMachinery.map((machine) => (
-                  <Card key={machine.id} className="relative overflow-hidden hover:shadow-lg transition-shadow">
-                    <CardHeader>
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <CardTitle className="text-lg">{machine.name}</CardTitle>
-                          <p className="text-sm text-muted-foreground">{machine.type} • {machine.site}</p>
-                        </div>
-                        <Badge variant={
-                          machine.status === 'active' ? 'default' :
-                          machine.status === 'maintenance' ? 'secondary' : 'outline'
-                        }>
-                          {machine.status}
-                        </Badge>
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-4">
-                        <div className="grid grid-cols-2 gap-4 text-sm">
-                          <div>
-                            <span className="font-medium">Operator:</span>
-                            <p>{machine.operator}</p>
-                          </div>
-                          <div>
-                            <span className="font-medium">Hours Operated:</span>
-                            <p>{machine.hoursOperated.toLocaleString()} hrs</p>
-                          </div>
-                          <div>
-                            <span className="font-medium">Last Maintenance:</span>
-                            <p>{machine.lastMaintenance}</p>
-                          </div>
-                          <div>
-                            <span className="font-medium">Next Maintenance:</span>
-                            <p className={
-                              new Date(machine.nextMaintenance) < new Date() ? 'text-red-600 font-medium' : ''
-                            }>
-                              {machine.nextMaintenance}
-                            </p>
-                          </div>
-                        </div>
-                        
-                        <div>
-                          <h4 className="font-medium text-sm mb-2">Remarks:</h4>
-                          <p className="text-sm text-muted-foreground bg-muted p-3 rounded-md">
-                            {machine.remarks}
-                          </p>
-                        </div>
-
-                        <div>
-                          <h4 className="font-medium text-sm mb-2">Maintenance History:</h4>
-                          <div className="space-y-2">
-                            {machine.maintenanceHistory.slice(0, 2).map((history, index) => (
-                              <div key={index} className="flex justify-between text-sm">
-                                <span>{history.date} - {history.type}</span>
-                                <span className="font-medium">₹{history.cost.toLocaleString()}</span>
-                              </div>
-                            ))}
-                            {machine.maintenanceHistory.length > 2 && (
-                              <p className="text-xs text-muted-foreground">
-                                +{machine.maintenanceHistory.length - 2} more records
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
+              <div className="flex justify-center mt-4">
+                <Button variant="outline" size="sm"
+                onClick={() => navigate('/superadmin/erp')}>
+                  View All Machinery
+                </Button>
               </div>
             </CardContent>
           </Card>
@@ -2037,23 +1969,10 @@ const SuperAdminDashboard = () => {
                   Parties/customers with outstanding balances and payment details
                 </p>
               </div>
-              <div className="flex items-center gap-2 w-full sm:w-auto">
-                <div className="flex items-center gap-2 flex-1 sm:flex-none">
-                  <Calendar className="h-4 w-4 text-muted-foreground" />
-                  <Input
-                    type="date"
-                    value={dateRange.start}
-                    onChange={(e) => setDateRange({...dateRange, start: e.target.value})}
-                    className="w-28 sm:w-32"
-                  />
-                  <span className="text-sm">to</span>
-                  <Input
-                    type="date"
-                    value={dateRange.end}
-                    onChange={(e) => setDateRange({...dateRange, end: e.target.value})}
-                    className="w-28 sm:w-32"
-                  />
-                </div>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" className="w-full sm:w-auto">
+                  View Details
+                </Button>
                 <Button variant="outline" size="sm" onClick={handleExportDebtors} className="w-full sm:w-auto">
                   <Download className="h-4 w-4 mr-2" />
                   Export Report
@@ -2061,29 +1980,6 @@ const SuperAdminDashboard = () => {
               </div>
             </CardHeader>
             <CardContent className="px-4 sm:px-6">
-              {/* Filters */}
-              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 mb-6">
-                <div className="flex items-center gap-2 flex-1 w-full">
-                  <Search className="h-4 w-4 text-muted-foreground" />
-                  <Input
-                    placeholder="Search by party name..."
-                    value={debtorSearch}
-                    onChange={(e) => setDebtorSearch(e.target.value)}
-                    className="w-full sm:w-64"
-                  />
-                </div>
-                <Select value={debtorStatusFilter} onValueChange={setDebtorStatusFilter} classNnoame="w-full sm:w-40">
-                  <SelectTrigger>
-                    <SelectValue placeholder="All Status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Status</SelectItem>
-                    <SelectItem value="pending">Pending</SelectItem>
-                    <SelectItem value="overdue">Overdue</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
               {/* Summary Cards */}
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
                 <Card>
@@ -2138,7 +2034,7 @@ const SuperAdminDashboard = () => {
                 </Card>
               </div>
 
-              {/* Debtors Table */}
+              {/* Quick Debtors Table */}
               <div className="rounded-md border">
                 <div className="overflow-x-auto">
                   <Table>
@@ -2147,36 +2043,21 @@ const SuperAdminDashboard = () => {
                         <TableHead className="min-w-[100px]">Party ID</TableHead>
                         <TableHead className="min-w-[150px]">Party Name</TableHead>
                         <TableHead className="min-w-[120px]">Contact Person</TableHead>
-                        <TableHead className="min-w-[150px]">Contact Info</TableHead>
                         <TableHead className="min-w-[120px]">Total Amount</TableHead>
                         <TableHead className="min-w-[120px]">Pending Amount</TableHead>
-                        <TableHead className="min-w-[120px]">Last Payment</TableHead>
                         <TableHead className="min-w-[100px]">Due Date</TableHead>
                         <TableHead className="min-w-[100px]">Status</TableHead>
-                        <TableHead className="min-w-[120px]">Credit Limit</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {paginatedDebtors.map((debtor) => (
+                      {paginatedDebtors.slice(0, 3).map((debtor) => (
                         <TableRow key={debtor.id} className="hover:bg-muted/50">
                           <TableCell className="font-medium min-w-[100px]">{debtor.partyId}</TableCell>
                           <TableCell className="font-medium min-w-[150px]">{debtor.partyName}</TableCell>
                           <TableCell className="min-w-[120px]">{debtor.contactPerson}</TableCell>
-                          <TableCell className="min-w-[150px]">
-                            <div className="text-sm">
-                              <div>{debtor.phone}</div>
-                              <div className="text-muted-foreground">{debtor.email}</div>
-                            </div>
-                          </TableCell>
                           <TableCell className="min-w-[120px]">₹{debtor.totalAmount.toLocaleString()}</TableCell>
                           <TableCell className="min-w-[120px] font-medium text-red-600">
                             ₹{debtor.pendingAmount.toLocaleString()}
-                          </TableCell>
-                          <TableCell className="min-w-[120px]">
-                            <div className="text-sm">
-                              <div>{debtor.lastPaymentDate}</div>
-                              <div className="text-muted-foreground">₹{debtor.lastPaymentAmount.toLocaleString()}</div>
-                            </div>
                           </TableCell>
                           <TableCell className="min-w-[100px]">
                             <div className={`font-medium ${
@@ -2190,7 +2071,6 @@ const SuperAdminDashboard = () => {
                               {debtor.status}
                             </Badge>
                           </TableCell>
-                          <TableCell className="min-w-[120px]">₹{debtor.creditLimit.toLocaleString()}</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -2198,82 +2078,10 @@ const SuperAdminDashboard = () => {
                 </div>
               </div>
 
-              <Pagination
-                currentPage={debtorPage}
-                totalPages={debtorTotalPages}
-                onPageChange={setDebtorPage}
-                totalItems={filteredDebtors.length}
-                itemsPerPage={itemsPerPage}
-              />
-
-              {/* Detailed Debtor Cards */}
-              <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {paginatedDebtors.map((debtor) => (
-                  <Card key={debtor.id} className="relative overflow-hidden hover:shadow-lg transition-shadow">
-                    <CardHeader>
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <CardTitle className="text-lg">{debtor.partyName}</CardTitle>
-                          <p className="text-sm text-muted-foreground">{debtor.contactPerson}</p>
-                        </div>
-                        <Badge variant={debtor.status === 'overdue' ? 'destructive' : 'secondary'}>
-                          {debtor.status}
-                        </Badge>
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-4">
-                        <div className="grid grid-cols-2 gap-4 text-sm">
-                          <div>
-                            <span className="font-medium">Phone:</span>
-                            <p>{debtor.phone}</p>
-                          </div>
-                          <div>
-                            <span className="font-medium">Email:</span>
-                            <p className="truncate">{debtor.email}</p>
-                          </div>
-                          <div>
-                            <span className="font-medium">Total Amount:</span>
-                            <p>₹{debtor.totalAmount.toLocaleString()}</p>
-                          </div>
-                          <div>
-                            <span className="font-medium">Pending Amount:</span>
-                            <p className="text-red-600 font-medium">₹{debtor.pendingAmount.toLocaleString()}</p>
-                          </div>
-                          <div>
-                            <span className="font-medium">Due Date:</span>
-                            <p className={
-                              debtor.status === 'overdue' ? 'text-red-600 font-medium' : ''
-                            }>
-                              {debtor.dueDate}
-                            </p>
-                          </div>
-                          <div>
-                            <span className="font-medium">Credit Limit:</span>
-                            <p>₹{debtor.creditLimit.toLocaleString()}</p>
-                          </div>
-                        </div>
-                        
-                        <div>
-                          <h4 className="font-medium text-sm mb-2">Recent Payments:</h4>
-                          <div className="space-y-2">
-                            {debtor.paymentHistory.slice(0, 2).map((payment, index) => (
-                              <div key={index} className="flex justify-between text-sm">
-                                <span>{payment.date} - {payment.mode}</span>
-                                <span className="text-green-600 font-medium">₹{payment.amount.toLocaleString()}</span>
-                              </div>
-                            ))}
-                            {debtor.paymentHistory.length > 2 && (
-                              <p className="text-xs text-muted-foreground">
-                                +{debtor.paymentHistory.length - 2} more payments
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
+              <div className="flex justify-center mt-4">
+                <Button variant="outline" size="sm">
+                  View All Debtors
+                </Button>
               </div>
             </CardContent>
           </Card>
@@ -2282,5 +2090,23 @@ const SuperAdminDashboard = () => {
     </div>
   );
 };
+
+// List icon component
+const List = ({ className }: { className?: string }) => (
+  <svg
+    className={className}
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+    xmlns="http://www.w3.org/2000/svg"
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      d="M4 6h16M4 10h16M4 14h16M4 18h16"
+    />
+  </svg>
+);
 
 export default SuperAdminDashboard;

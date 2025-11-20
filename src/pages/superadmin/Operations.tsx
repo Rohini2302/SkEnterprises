@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Search, Clock, AlertCircle, Edit, Trash2, Eye, Download, Calculator, CheckCircle, XCircle, Users, Calendar } from "lucide-react";
+import { Plus, Search, Clock, AlertCircle, Edit, Trash2, Eye, Download, Calculator, CheckCircle, XCircle, Users, Calendar, Building } from "lucide-react";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 
@@ -23,6 +23,7 @@ interface Task {
   priority: "high" | "medium" | "low";
   status: "pending" | "in-progress" | "completed";
   deadline: string;
+  siteId: string;
 }
 
 interface Site {
@@ -74,36 +75,6 @@ interface Alert {
 }
 
 // Dummy Data
-const initialTasks: Task[] = [
-  {
-    id: "1",
-    title: "Site Inspection",
-    description: "Complete site inspection for safety compliance",
-    assignedTo: "manager-a",
-    priority: "high",
-    status: "pending",
-    deadline: "2024-01-15"
-  },
-  {
-    id: "2",
-    title: "Equipment Maintenance",
-    description: "Regular maintenance of security equipment",
-    assignedTo: "supervisor-a",
-    priority: "medium",
-    status: "in-progress",
-    deadline: "2024-01-20"
-  },
-  {
-    id: "3",
-    title: "Staff Training",
-    description: "Conduct safety training for new staff",
-    assignedTo: "supervisor-b",
-    priority: "low",
-    status: "completed",
-    deadline: "2024-01-10"
-  }
-];
-
 const initialSites: Site[] = [
   {
     id: "1",
@@ -132,6 +103,73 @@ const initialSites: Site[] = [
     contractValue: 1800000,
     contractEndDate: "2024-11-30",
     status: "active"
+  },
+  {
+    id: "3",
+    name: "IT Park Center",
+    clientName: "Tech Solutions Ltd",
+    location: "Tech Park",
+    areaSqft: 75000,
+    siteManager: "Robert Brown",
+    managerPhone: "+91 9876543214",
+    supervisor: "Emily Davis",
+    supervisorPhone: "+91 9876543215",
+    contractValue: 3200000,
+    contractEndDate: "2025-01-31",
+    status: "active"
+  }
+];
+
+const initialTasks: Task[] = [
+  {
+    id: "1",
+    title: "Site Inspection",
+    description: "Complete site inspection for safety compliance",
+    assignedTo: "manager-a",
+    priority: "high",
+    status: "pending",
+    deadline: "2024-01-15",
+    siteId: "1"
+  },
+  {
+    id: "2",
+    title: "Equipment Maintenance",
+    description: "Regular maintenance of security equipment",
+    assignedTo: "supervisor-a",
+    priority: "medium",
+    status: "in-progress",
+    deadline: "2024-01-20",
+    siteId: "1"
+  },
+  {
+    id: "3",
+    title: "Staff Training",
+    description: "Conduct safety training for new staff",
+    assignedTo: "supervisor-b",
+    priority: "low",
+    status: "completed",
+    deadline: "2024-01-10",
+    siteId: "2"
+  },
+  {
+    id: "4",
+    title: "Security Audit",
+    description: "Monthly security audit and report generation",
+    assignedTo: "supervisor-a",
+    priority: "high",
+    status: "pending",
+    deadline: "2024-01-18",
+    siteId: "2"
+  },
+  {
+    id: "5",
+    title: "Parking System Check",
+    description: "Inspect and test parking management system",
+    assignedTo: "manager-b",
+    priority: "medium",
+    status: "in-progress",
+    deadline: "2024-01-22",
+    siteId: "3"
   }
 ];
 
@@ -191,12 +229,6 @@ const staffMembers = [
   { id: "staff-6", name: "Anjali Singh", role: "Parking Attendant", employeeId: "EMP006" }
 ];
 
-const sites = [
-  { id: "1", name: "Commercial Complex A", client: "ABC Corporation" },
-  { id: "2", name: "Residential Tower B", client: "XYZ Builders" },
-  { id: "3", name: "IT Park Center", client: "Tech Solutions Ltd" }
-];
-
 const supervisors = [
   { id: "1", name: "Mike Johnson" },
   { id: "2", name: "Sarah Wilson" },
@@ -245,41 +277,127 @@ const initialAlerts: Alert[] = [
 ];
 
 // Stats Cards Component
-const StatsCards = () => {
-  const [tasks] = useState<Task[]>(initialTasks);
-  
+const StatsCards = ({ tasks }: { tasks: Task[] }) => {
+  const getSiteStats = () => {
+    const siteStats: { [key: string]: { total: number; completed: number; pending: number; inProgress: number } } = {};
+    
+    initialSites.forEach(site => {
+      const siteTasks = tasks.filter(task => task.siteId === site.id);
+      siteStats[site.id] = {
+        total: siteTasks.length,
+        completed: siteTasks.filter(t => t.status === "completed").length,
+        pending: siteTasks.filter(t => t.status === "pending").length,
+        inProgress: siteTasks.filter(t => t.status === "in-progress").length
+      };
+    });
+
+    return siteStats;
+  };
+
+  const siteStats = getSiteStats();
+  const totalTasks = tasks.length;
+  const inProgressTasks = tasks.filter(t => t.status === "in-progress").length;
+  const pendingTasks = tasks.filter(t => t.status === "pending").length;
+  const completedTasks = tasks.filter(t => t.status === "completed").length;
+
   return (
-    <div className="grid gap-4 md:grid-cols-4 mb-6">
+    <div className="space-y-6">
+      {/* Overall Stats */}
+      <div className="grid gap-4 md:grid-cols-4">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Total Tasks</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{totalTasks}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">In Progress</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-primary">{inProgressTasks}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Pending</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-muted-foreground">{pendingTasks}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Completed</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-green-600">{completedTasks}</div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Site-wise Stats */}
       <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium">Total Tasks</CardTitle>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Building className="h-5 w-5" />
+            Site-wise Task Statistics
+          </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="text-2xl font-bold">{tasks.length}</div>
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium">In Progress</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="text-2xl font-bold text-primary">{tasks.filter(t => t.status === "in-progress").length}</div>
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium">Pending</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="text-2xl font-bold text-muted-foreground">{tasks.filter(t => t.status === "pending").length}</div>
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium">Completed</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="text-2xl font-bold text-green-600">{tasks.filter(t => t.status === "completed").length}</div>
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {initialSites.map((site) => {
+              const stats = siteStats[site.id];
+              return (
+                <Card key={site.id} className="relative">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base flex items-center justify-between">
+                      {site.name}
+                      <Badge variant={site.status === "active" ? "default" : "secondary"}>
+                        {site.status}
+                      </Badge>
+                    </CardTitle>
+                    <div className="text-sm text-muted-foreground">
+                      {site.clientName} • {site.location}
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      <div className="space-y-1">
+                        <div className="text-muted-foreground">Total Tasks</div>
+                        <div className="font-semibold">{stats.total}</div>
+                      </div>
+                      <div className="space-y-1">
+                        <div className="text-muted-foreground">Completed</div>
+                        <div className="font-semibold text-green-600">{stats.completed}</div>
+                      </div>
+                      <div className="space-y-1">
+                        <div className="text-muted-foreground">In Progress</div>
+                        <div className="font-semibold text-primary">{stats.inProgress}</div>
+                      </div>
+                      <div className="space-y-1">
+                        <div className="text-muted-foreground">Pending</div>
+                        <div className="font-semibold text-orange-500">{stats.pending}</div>
+                      </div>
+                    </div>
+                    <div className="w-full bg-muted rounded-full h-2">
+                      <div 
+                        className="bg-primary h-2 rounded-full transition-all duration-300"
+                        style={{ 
+                          width: stats.total > 0 ? `${(stats.completed / stats.total) * 100}%` : '0%' 
+                        }}
+                      />
+                    </div>
+                    <div className="text-xs text-muted-foreground text-center">
+                      {stats.completed} of {stats.total} tasks completed
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
         </CardContent>
       </Card>
     </div>
@@ -325,6 +443,7 @@ const TasksSection = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [tasks, setTasks] = useState<Task[]>(initialTasks);
+  const [selectedSite, setSelectedSite] = useState<string>("all");
 
   const handleAssignTask = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -337,7 +456,8 @@ const TasksSection = () => {
       assignedTo: formData.get("assign-to") as string,
       priority: formData.get("priority") as "high" | "medium" | "low",
       status: "pending",
-      deadline: formData.get("deadline") as string
+      deadline: formData.get("deadline") as string,
+      siteId: formData.get("site") as string
     };
 
     setTasks(prev => [newTask, ...prev]);
@@ -358,10 +478,16 @@ const TasksSection = () => {
     toast.success("Task status updated!");
   };
 
-  const filteredTasks = tasks.filter(task => 
-    task.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    task.assignedTo.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // Filter tasks based on search query and selected site
+  const filteredTasks = tasks.filter(task => {
+    const matchesSearch = 
+      task.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      task.assignedTo.toLowerCase().includes(searchQuery.toLowerCase());
+    
+    const matchesSite = selectedSite === "all" || task.siteId === selectedSite;
+    
+    return matchesSearch && matchesSite;
+  });
 
   const getPriorityColor = (priority: string) => {
     const colors = { high: "destructive", medium: "default", low: "secondary" };
@@ -377,9 +503,15 @@ const TasksSection = () => {
     const assignees: { [key: string]: string } = {
       "manager-a": "Manager A",
       "supervisor-a": "Supervisor A",
-      "supervisor-b": "Supervisor B"
+      "supervisor-b": "Supervisor B",
+      "manager-b": "Manager B"
     };
     return assignees[assigneeId] || assigneeId;
+  };
+
+  const getSiteName = (siteId: string) => {
+    const site = initialSites.find(s => s.id === siteId);
+    return site ? site.name : "Unknown Site";
   };
 
   const AssignTaskDialog = ({ open, onOpenChange, onSubmit }: { 
@@ -399,6 +531,20 @@ const TasksSection = () => {
           <DialogTitle>Assign New Task</DialogTitle>
         </DialogHeader>
         <form onSubmit={onSubmit} className="space-y-4">
+          <FormField label="Site" id="site" required>
+            <Select name="site" required>
+              <SelectTrigger>
+                <SelectValue placeholder="Select site" />
+              </SelectTrigger>
+              <SelectContent>
+                {initialSites.map(site => (
+                  <SelectItem key={site.id} value={site.id}>
+                    {site.name} - {site.clientName}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </FormField>
           <FormField label="Task Title" id="task-title" required>
             <Input id="task-title" name="task-title" placeholder="Enter task title" required />
           </FormField>
@@ -414,6 +560,7 @@ const TasksSection = () => {
                 <SelectItem value="manager-a">Manager A</SelectItem>
                 <SelectItem value="supervisor-a">Supervisor A</SelectItem>
                 <SelectItem value="supervisor-b">Supervisor B</SelectItem>
+                <SelectItem value="manager-b">Manager B</SelectItem>
               </SelectContent>
             </Select>
           </FormField>
@@ -446,12 +593,32 @@ const TasksSection = () => {
           <AssignTaskDialog open={dialogOpen} onOpenChange={setDialogOpen} onSubmit={handleAssignTask} />
         </CardHeader>
         <CardContent>
-          <SearchBar value={searchQuery} onChange={setSearchQuery} placeholder="Search tasks..." />
+          <div className="flex flex-col sm:flex-row gap-4 mb-4">
+            <div className="flex-1">
+              <SearchBar value={searchQuery} onChange={setSearchQuery} placeholder="Search tasks..." />
+            </div>
+            <div className="w-full sm:w-48">
+              <Select value={selectedSite} onValueChange={setSelectedSite}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Filter by site" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Sites</SelectItem>
+                  {initialSites.map(site => (
+                    <SelectItem key={site.id} value={site.id}>
+                      {site.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
           
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Task Title</TableHead>
+                <TableHead>Site</TableHead>
                 <TableHead>Assigned To</TableHead>
                 <TableHead>Priority</TableHead>
                 <TableHead>Status</TableHead>
@@ -462,7 +629,7 @@ const TasksSection = () => {
             <TableBody>
               {filteredTasks.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                     No tasks found
                   </TableCell>
                 </TableRow>
@@ -474,6 +641,11 @@ const TasksSection = () => {
                         <div>{task.title}</div>
                         <div className="text-sm text-muted-foreground">{task.description}</div>
                       </div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="text-xs">
+                        {getSiteName(task.siteId)}
+                      </Badge>
                     </TableCell>
                     <TableCell>{getAssigneeName(task.assignedTo)}</TableCell>
                     <TableCell>
@@ -946,9 +1118,9 @@ const RosterSection = () => {
                           <SelectValue placeholder="Select site/client" />
                         </SelectTrigger>
                         <SelectContent>
-                          {sites.map(site => (
-                            <SelectItem key={site.id} value={`${site.name} - ${site.client}`}>
-                              {site.name} - {site.client}
+                          {initialSites.map(site => (
+                            <SelectItem key={site.id} value={`${site.name} - ${site.clientName}`}>
+                              {site.name} - {site.clientName}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -1397,6 +1569,7 @@ const PriceCalculator = () => {
 // Main Operations Component
 const Operations = () => {
   const [activeTab, setActiveTab] = useState("tasks");
+  const [tasks] = useState<Task[]>(initialTasks);
 
   return (
     <div className="min-h-screen bg-background">
@@ -1407,7 +1580,7 @@ const Operations = () => {
         animate={{ opacity: 1, y: 0 }}
         className="p-6 space-y-6"
       >
-        <StatsCards />
+        <StatsCards tasks={tasks} />
         
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
           <TabsList className="grid w-full grid-cols-2 lg:grid-cols-5">

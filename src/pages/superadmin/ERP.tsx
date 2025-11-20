@@ -9,13 +9,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { 
   Search, Plus, Edit, Package, ShoppingCart, Trash2, Eye, 
   IndianRupee, Building, Users, MapPin, Download, Upload,
   UserCheck, Phone, Mail, Home, Shield, Car, Trash, Droplets, ShoppingBasket,
-  Wrench, Settings, AlertTriangle
+  Wrench, Settings, AlertTriangle, Cpu, BarChart3
 } from "lucide-react";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
@@ -35,16 +34,19 @@ interface Product {
   sku: string;
   reorderLevel: number;
   description?: string;
+  site: string;
+  assignedManager: string;
+  changeHistory: ChangeHistory[];
+  brushCount?: number;
+  squeegeeCount?: number;
 }
 
-interface PurchaseOrder {
-  id: string;
-  vendor: string;
-  items: { productName: string; quantity: number; unitPrice: number; total: number }[];
-  totalAmount: number;
-  status: "draft" | "pending" | "approved" | "delivered";
-  orderDate: string;
-  deliveryDate: string;
+interface ChangeHistory {
+  date: string;
+  changeType: "maintenance" | "repair" | "replacement" | "inspection";
+  description: string;
+  cost: number;
+  performedBy: string;
 }
 
 interface Site {
@@ -270,7 +272,7 @@ const departmentCategories = {
   }
 };
 
-// Sample Data
+// Sample Data with enhanced machine information
 const initialProducts: Product[] = [
   { 
     id: "1", 
@@ -285,10 +287,93 @@ const initialProducts: Product[] = [
     supplier: "Cleaning Equipment Co.", 
     sku: "HK-MACH-001", 
     reorderLevel: 2,
-    description: "Professional single disc floor cleaning machine"
+    description: "Professional single disc floor cleaning machine",
+    site: "SITE-001",
+    assignedManager: "Rajesh Kumar",
+    brushCount: 12,
+    squeegeeCount: 8,
+    changeHistory: [
+      {
+        date: "2024-01-15",
+        changeType: "maintenance",
+        description: "Routine maintenance and brush replacement",
+        cost: 2500,
+        performedBy: "Maintenance Team"
+      },
+      {
+        date: "2024-02-20",
+        changeType: "repair",
+        description: "Motor bearing replacement",
+        cost: 4500,
+        performedBy: "Technical Team"
+      }
+    ]
   },
   { 
     id: "2", 
+    name: "Auto scrubber dryer", 
+    category: "Machines",
+    subCategory: "Machines",
+    department: "housekeeping", 
+    quantity: 3, 
+    price: 125000, 
+    costPrice: 110000, 
+    status: "in-stock", 
+    supplier: "Cleaning Equipment Co.", 
+    sku: "HK-MACH-002", 
+    reorderLevel: 1,
+    description: "Walk-behind auto scrubber dryer",
+    site: "SITE-001",
+    assignedManager: "Rajesh Kumar",
+    brushCount: 6,
+    squeegeeCount: 4,
+    changeHistory: [
+      {
+        date: "2024-01-10",
+        changeType: "maintenance",
+        description: "Battery replacement and system check",
+        cost: 8500,
+        performedBy: "Maintenance Team"
+      }
+    ]
+  },
+  { 
+    id: "3", 
+    name: "High pressure jet machine", 
+    category: "Machines",
+    subCategory: "Machines",
+    department: "housekeeping", 
+    quantity: 2, 
+    price: 75000, 
+    costPrice: 65000, 
+    status: "low-stock", 
+    supplier: "Cleaning Equipment Co.", 
+    sku: "HK-MACH-003", 
+    reorderLevel: 1,
+    description: "Industrial high pressure cleaning machine",
+    site: "SITE-002",
+    assignedManager: "Sanjay Singh",
+    brushCount: 4,
+    squeegeeCount: 3,
+    changeHistory: [
+      {
+        date: "2024-01-25",
+        changeType: "repair",
+        description: "Pump seal replacement",
+        cost: 3200,
+        performedBy: "Technical Team"
+      },
+      {
+        date: "2024-02-15",
+        changeType: "maintenance",
+        description: "Nozzle cleaning and pressure check",
+        cost: 1800,
+        performedBy: "Maintenance Team"
+      }
+    ]
+  },
+  { 
+    id: "4", 
     name: "CCTV Cameras (IP/HD)", 
     category: "Equipment",
     subCategory: "Equipment",
@@ -299,10 +384,13 @@ const initialProducts: Product[] = [
     status: "in-stock", 
     supplier: "Security Systems Ltd.", 
     sku: "SEC-EQP-001", 
-    reorderLevel: 5 
+    reorderLevel: 5,
+    site: "SITE-001",
+    assignedManager: "Rajesh Kumar",
+    changeHistory: []
   },
   { 
-    id: "3", 
+    id: "5", 
     name: "Boom barrier", 
     category: "Equipment",
     subCategory: "Equipment",
@@ -313,10 +401,13 @@ const initialProducts: Product[] = [
     status: "low-stock", 
     supplier: "Parking Solutions Inc.", 
     sku: "PARK-EQP-001", 
-    reorderLevel: 3 
+    reorderLevel: 3,
+    site: "SITE-002",
+    assignedManager: "Sanjay Singh",
+    changeHistory: []
   },
   { 
-    id: "4", 
+    id: "6", 
     name: "Color-coded bins", 
     category: "Bins & Storage",
     subCategory: "Bins & Storage",
@@ -327,35 +418,10 @@ const initialProducts: Product[] = [
     status: "in-stock", 
     supplier: "Waste Management Corp", 
     sku: "WASTE-BIN-001", 
-    reorderLevel: 20 
-  },
-  { 
-    id: "5", 
-    name: "Submersible pump", 
-    category: "Machines & Tools",
-    subCategory: "Machines & Tools",
-    department: "stp", 
-    quantity: 3, 
-    price: 35000, 
-    costPrice: 28000, 
-    status: "low-stock", 
-    supplier: "STP Equipment Ltd", 
-    sku: "STP-MACH-001", 
-    reorderLevel: 2 
-  },
-  { 
-    id: "6", 
-    name: "Floor cleaner", 
-    category: "Chemicals & Consumables",
-    subCategory: "Chemicals & Consumables",
-    department: "housekeeping", 
-    quantity: 100, 
-    price: 450, 
-    costPrice: 320, 
-    status: "in-stock", 
-    supplier: "Chemical Suppliers", 
-    sku: "HK-CHEM-001", 
-    reorderLevel: 30 
+    reorderLevel: 20,
+    site: "SITE-001",
+    assignedManager: "Rajesh Kumar",
+    changeHistory: []
   },
 ];
 
@@ -380,41 +446,22 @@ const initialVendors: Vendor[] = [
   { id: "VEND-005", name: "STP Equipment Ltd", category: "STP", contactPerson: "Mr. Kumar", phone: "+91 44 2654 7894", city: "Chennai", status: "active" },
 ];
 
-const initialPurchaseOrders: PurchaseOrder[] = [
-  { 
-    id: "PO-001", 
-    vendor: "Cleaning Equipment Co.", 
-    items: [
-      { productName: "Single disc machine", quantity: 2, unitPrice: 38000, total: 76000 },
-      { productName: "Auto scrubber dryer", quantity: 1, unitPrice: 125000, total: 125000 }
-    ],
-    totalAmount: 201000,
-    status: "approved", 
-    orderDate: "2024-01-15",
-    deliveryDate: "2024-01-25"
-  }
-];
-
 const ERP = () => {
   // State Management
   const [products, setProducts] = useState<Product[]>(initialProducts);
   const [sites, setSites] = useState<Site[]>(initialSites);
   const [employees, setEmployees] = useState<Employee[]>(initialEmployees);
   const [vendors, setVendors] = useState<Vendor[]>(initialVendors);
-  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>(initialPurchaseOrders);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedDepartment, setSelectedDepartment] = useState("all");
   const [selectedCategory, setSelectedCategory] = useState("all");
+  const [selectedSite, setSelectedSite] = useState("all");
   const [customProductName, setCustomProductName] = useState("");
 
   // Dialog States
   const [productDialogOpen, setProductDialogOpen] = useState(false);
-  const [siteDialogOpen, setSiteDialogOpen] = useState(false);
-  const [employeeDialogOpen, setEmployeeDialogOpen] = useState(false);
-  const [vendorDialogOpen, setVendorDialogOpen] = useState(false);
-  const [poDialogOpen, setPoDialogOpen] = useState(false);
+  const [changeHistoryDialogOpen, setChangeHistoryDialogOpen] = useState<string | null>(null);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
-  const [viewEmployeesDialog, setViewEmployeesDialog] = useState<string | null>(null);
 
   // Form States
   const [selectedDept, setSelectedDept] = useState("housekeeping");
@@ -424,7 +471,7 @@ const ERP = () => {
   // Utility Functions
   const getStatusColor = (status: string) => {
     const statusColors: { [key: string]: "default" | "secondary" | "destructive" | "outline" } = {
-      "active": "default", "approved": "default", "delivered": "default", "in-stock": "default",
+      "active": "default", "in-stock": "default",
       "pending": "secondary", "inactive": "outline", "draft": "outline",
       "low-stock": "secondary", "out-of-stock": "destructive"
     };
@@ -470,6 +517,11 @@ const ERP = () => {
       sku: generateSKU(selectedDept, selectedProdCategory),
       reorderLevel: parseInt(formData.get("reorderLevel") as string),
       description: formData.get("description") as string,
+      site: formData.get("site") as string,
+      assignedManager: sites.find(s => s.id === formData.get("site"))?.manager || "",
+      brushCount: parseInt(formData.get("brushCount") as string) || 0,
+      squeegeeCount: parseInt(formData.get("squeegeeCount") as string) || 0,
+      changeHistory: []
     };
     
     setProducts(prev => [newProduct, ...prev]);
@@ -490,137 +542,99 @@ const ERP = () => {
     return `${deptCode}-${catCode}-${count.toString().padStart(3, '0')}`;
   };
 
-  const handleEditProduct = (productId: string, e: React.FormEvent<HTMLFormElement>) => {
+  const handleAddChangeHistory = (productId: string, e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
+    
+    const newChange: ChangeHistory = {
+      date: formData.get("date") as string,
+      changeType: formData.get("changeType") as "maintenance" | "repair" | "replacement" | "inspection",
+      description: formData.get("description") as string,
+      cost: parseInt(formData.get("cost") as string),
+      performedBy: formData.get("performedBy") as string,
+    };
     
     setProducts(prev => prev.map(product => 
-      product.id === productId ? {
-        ...product,
-        name: formData.get("name") as string,
-        category: formData.get("category") as string,
-        quantity: parseInt(formData.get("quantity") as string),
-        price: parseInt(formData.get("price") as string),
-        costPrice: parseInt(formData.get("costPrice") as string),
-        supplier: formData.get("supplier") as string,
-        reorderLevel: parseInt(formData.get("reorderLevel") as string),
-        description: formData.get("description") as string,
-      } : product
-    ));
-    toast.success("Product updated successfully!");
-  };
-
-  const handleDeleteProduct = (productId: string) => {
-    setProducts(prev => prev.filter(p => p.id !== productId));
-    toast.success("Product deleted successfully!");
-  };
-
-  // Site Functions
-  const handleAddSite = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    
-    const newSite: Site = {
-      id: `SITE-${(sites.length + 1).toString().padStart(3, '0')}`,
-      name: formData.get("name") as string,
-      location: formData.get("location") as string,
-      city: formData.get("city") as string,
-      status: "active",
-      manager: formData.get("manager") as string,
-      totalEmployees: 0,
-      contact: formData.get("contact") as string,
-    };
-    
-    setSites(prev => [newSite, ...prev]);
-    toast.success("Site added successfully!");
-    setSiteDialogOpen(false);
-  };
-
-  // Employee Functions
-  const handleAddEmployee = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    
-    const newEmployee: Employee = {
-      id: `EMP-${(employees.length + 1).toString().padStart(3, '0')}`,
-      name: formData.get("name") as string,
-      role: formData.get("role") as string,
-      phone: formData.get("phone") as string,
-      site: formData.get("site") as string,
-      status: "active",
-      salary: parseInt(formData.get("salary") as string),
-    };
-    
-    setEmployees(prev => [newEmployee, ...prev]);
-    
-    // Update site employee count
-    setSites(prev => prev.map(site => 
-      site.id === newEmployee.site 
-        ? { ...site, totalEmployees: site.totalEmployees + 1 }
-        : site
+      product.id === productId 
+        ? { ...product, changeHistory: [...product.changeHistory, newChange] }
+        : product
     ));
     
-    toast.success("Employee added successfully!");
-    setEmployeeDialogOpen(false);
+    toast.success("Change history added successfully!");
   };
 
-  // Vendor Functions
-  const handleAddVendor = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    
-    const newVendor: Vendor = {
-      id: `VEND-${(vendors.length + 1).toString().padStart(3, '0')}`,
-      name: formData.get("name") as string,
-      category: formData.get("category") as string,
-      contactPerson: formData.get("contactPerson") as string,
-      phone: formData.get("phone") as string,
-      city: formData.get("city") as string,
-      status: "active",
-    };
-    
-    setVendors(prev => [newVendor, ...prev]);
-    toast.success("Vendor added successfully!");
-    setVendorDialogOpen(false);
+  // Calculations
+  const getTotalMachineCost = () => {
+    const machines = products.filter(p => 
+      p.department === "housekeeping" && p.category === "Machines"
+    );
+    return machines.reduce((total, machine) => total + (machine.costPrice * machine.quantity), 0);
   };
 
-  // Purchase Order Functions
-  const handleAddPO = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    
-    const newPO: PurchaseOrder = {
-      id: `PO-${(purchaseOrders.length + 1).toString().padStart(3, '0')}`,
-      vendor: formData.get("vendor") as string,
-      items: products.filter(p => formData.get(`product-${p.id}`) === "on").map(product => ({
-        productName: product.name,
-        quantity: parseInt(formData.get(`quantity-${product.id}`) as string) || 1,
-        unitPrice: product.costPrice,
-        total: product.costPrice * (parseInt(formData.get(`quantity-${product.id}`) as string) || 1)
-      })),
-      totalAmount: 0, // Will be calculated
-      status: "draft",
-      orderDate: new Date().toISOString().split('T')[0],
-      deliveryDate: formData.get("deliveryDate") as string,
-    };
-    
-    newPO.totalAmount = newPO.items.reduce((sum, item) => sum + item.total, 0);
-    
-    setPurchaseOrders(prev => [newPO, ...prev]);
-    toast.success("Purchase order created successfully!");
-    setPoDialogOpen(false);
+  const getTotalBrushCount = () => {
+    const machines = products.filter(p => 
+      p.department === "housekeeping" && p.category === "Machines"
+    );
+    return machines.reduce((total, machine) => total + (machine.brushCount || 0), 0);
   };
 
-  // Import Functions
-  const handleImport = (type: string, file: File) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const content = e.target?.result as string;
-      // Simulate CSV parsing
-      toast.success(`${type} imported successfully from ${file.name}`);
-      console.log(`Imported ${type} data:`, content);
-    };
-    reader.readAsText(file);
+  const getTotalSqueegeeCount = () => {
+    const machines = products.filter(p => 
+      p.department === "housekeeping" && p.category === "Machines"
+    );
+    return machines.reduce((total, machine) => total + (machine.squeegeeCount || 0), 0);
+  };
+
+  const getSiteWiseMachineStats = () => {
+    const stats: { [key: string]: { 
+      siteName: string; 
+      manager: string; 
+      machineCount: number; 
+      totalChanges: number;
+      totalCost: number;
+      brushCount: number;
+      squeegeeCount: number;
+    } } = {};
+    
+    products
+      .filter(p => p.department === "housekeeping" && p.category === "Machines")
+      .forEach(machine => {
+        if (!stats[machine.site]) {
+          const site = sites.find(s => s.id === machine.site);
+          stats[machine.site] = {
+            siteName: site?.name || "Unknown Site",
+            manager: machine.assignedManager,
+            machineCount: 0,
+            totalChanges: 0,
+            totalCost: 0,
+            brushCount: 0,
+            squeegeeCount: 0
+          };
+        }
+        
+        stats[machine.site].machineCount += machine.quantity;
+        stats[machine.site].totalChanges += machine.changeHistory.length;
+        stats[machine.site].totalCost += machine.costPrice * machine.quantity;
+        stats[machine.site].brushCount += machine.brushCount || 0;
+        stats[machine.site].squeegeeCount += machine.squeegeeCount || 0;
+      });
+    
+    return stats;
+  };
+
+  // Get categories for selected department - FIXED VERSION
+  const getCategoriesForDepartment = (dept: string) => {
+    const deptCategories = departmentCategories[dept as keyof typeof departmentCategories];
+    return deptCategories ? Object.keys(deptCategories) : [];
+  };
+
+  // Get products for selected department and category - FIXED VERSION
+  const getProductsForCategory = (dept: string, category: string) => {
+    const deptCategories = departmentCategories[dept as keyof typeof departmentCategories];
+    if (!deptCategories) return [];
+    
+    const categoryProducts = deptCategories[category as keyof typeof deptCategories];
+    return Array.isArray(categoryProducts) ? categoryProducts : [];
   };
 
   // Filtered Data
@@ -629,21 +643,11 @@ const ERP = () => {
                          product.sku.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesDepartment = selectedDepartment === "all" || product.department === selectedDepartment;
     const matchesCategory = selectedCategory === "all" || product.category === selectedCategory;
-    return matchesSearch && matchesDepartment && matchesCategory;
+    const matchesSite = selectedSite === "all" || product.site === selectedSite;
+    return matchesSearch && matchesDepartment && matchesCategory && matchesSite;
   });
 
-  const siteEmployees = (siteId: string) => 
-    employees.filter(emp => emp.site === siteId);
-
-  // Get categories for selected department
-  const getCategoriesForDepartment = (dept: string) => {
-    return Object.keys(departmentCategories[dept as keyof typeof departmentCategories] || {});
-  };
-
-  // Get products for selected department and category
-  const getProductsForCategory = (dept: string, category: string) => {
-    return departmentCategories[dept as keyof typeof departmentCategories]?.[category] || [];
-  };
+  const siteWiseStats = getSiteWiseMachineStats();
 
   return (
     <div className="min-h-screen bg-background">
@@ -654,140 +658,68 @@ const ERP = () => {
         animate={{ opacity: 1, y: 0 }}
         className="p-6 space-y-6"
       >
-        {/* Stats Cards */}
+        {/* Machine Statistics Cards */}
         <div className="grid gap-4 md:grid-cols-4">
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">Total Products</CardTitle>
+              <CardTitle className="text-sm font-medium flex items-center gap-2">
+                <Cpu className="h-4 w-4" />
+                Total Machines
+              </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{products.length}</div>
+              <div className="text-2xl font-bold">
+                {products.filter(p => p.department === "housekeeping" && p.category === "Machines")
+                  .reduce((total, machine) => total + machine.quantity, 0)}
+              </div>
+              <p className="text-xs text-muted-foreground">Across all sites</p>
             </CardContent>
           </Card>
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">Active Sites</CardTitle>
+              <CardTitle className="text-sm font-medium flex items-center gap-2">
+                <IndianRupee className="h-4 w-4" />
+                Total Machine Cost
+              </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-primary">{sites.length}</div>
+              <div className="text-2xl font-bold text-primary">
+                {formatCurrency(getTotalMachineCost())}
+              </div>
+              <p className="text-xs text-muted-foreground">Total investment</p>
             </CardContent>
           </Card>
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">Vendors</CardTitle>
+              <CardTitle className="text-sm font-medium flex items-center gap-2">
+                <Wrench className="h-4 w-4" />
+                Total Brushes
+              </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{vendors.length}</div>
+              <div className="text-2xl font-bold">{getTotalBrushCount()}</div>
+              <p className="text-xs text-muted-foreground">Brush count</p>
             </CardContent>
           </Card>
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">Employees</CardTitle>
+              <CardTitle className="text-sm font-medium flex items-center gap-2">
+                <Droplets className="h-4 w-4" />
+                Total Squeegees
+              </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{employees.length}</div>
+              <div className="text-2xl font-bold">{getTotalSqueegeeCount()}</div>
+              <p className="text-xs text-muted-foreground">Squeegee count</p>
             </CardContent>
           </Card>
         </div>
 
-        <Tabs defaultValue="sites" className="w-full">
-          <TabsList className="grid w-full grid-cols-4">
-            <TabsTrigger value="sites">Sites</TabsTrigger>
-            <TabsTrigger value="inventory">Inventory</TabsTrigger>
-            <TabsTrigger value="vendors">Vendors</TabsTrigger>
-            <TabsTrigger value="purchase">Purchase Orders</TabsTrigger>
+        <Tabs defaultValue="inventory" className="w-full">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="inventory">Inventory Management</TabsTrigger>
+            <TabsTrigger value="machine-stats">Machine Statistics</TabsTrigger>
           </TabsList>
-
-          {/* Sites Tab */}
-          <TabsContent value="sites">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0">
-                <CardTitle>Site Management</CardTitle>
-                <div className="flex gap-2">
-                  <Button variant="outline" onClick={() => setImportDialogOpen(true)}>
-                    <Upload className="mr-2 h-4 w-4" />
-                    Import
-                  </Button>
-                  <Button onClick={() => setSiteDialogOpen(true)}>
-                    <Plus className="mr-2 h-4 w-4" />
-                    Add Site
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Site ID</TableHead>
-                      <TableHead>Site Name</TableHead>
-                      <TableHead>Location</TableHead>
-                      <TableHead>Manager</TableHead>
-                      <TableHead>Employees</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {sites.map((site) => (
-                      <TableRow key={site.id}>
-                        <TableCell className="font-medium">{site.id}</TableCell>
-                        <TableCell className="flex items-center gap-2">
-                          <Building className="h-4 w-4" />
-                          {site.name}
-                        </TableCell>
-                        <TableCell>{site.location}, {site.city}</TableCell>
-                        <TableCell>{site.manager}</TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            <Badge variant="outline">
-                              <Users className="h-3 w-3 mr-1" />
-                              {site.totalEmployees}
-                            </Badge>
-                            <Button 
-                              variant="outline" 
-                              size="sm"
-                              onClick={() => setViewEmployeesDialog(site.id)}
-                            >
-                              <Eye className="h-3 w-3" />
-                            </Button>
-                            <Button 
-                              variant="outline" 
-                              size="sm"
-                              onClick={() => setEmployeeDialogOpen(true)}
-                            >
-                              <Plus className="h-3 w-3" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={getStatusColor(site.status)}>
-                            {site.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex gap-2">
-                            <Button variant="outline" size="sm">
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                            <Button 
-                              variant="outline" 
-                              size="sm"
-                              onClick={() => {
-                                setSites(prev => prev.filter(s => s.id !== site.id));
-                                toast.success("Site deleted successfully!");
-                              }}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-          </TabsContent>
 
           {/* Inventory Tab */}
           <TabsContent value="inventory">
@@ -842,6 +774,17 @@ const ERP = () => {
                       }
                     </SelectContent>
                   </Select>
+                  <Select value={selectedSite} onValueChange={setSelectedSite}>
+                    <SelectTrigger className="w-40">
+                      <SelectValue placeholder="All Sites" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Sites</SelectItem>
+                      {sites.map(site => (
+                        <SelectItem key={site.id} value={site.id}>{site.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 
                 <Table>
@@ -850,10 +793,10 @@ const ERP = () => {
                       <TableHead>SKU</TableHead>
                       <TableHead>Product Name</TableHead>
                       <TableHead>Department</TableHead>
-                      <TableHead>Category</TableHead>
+                      <TableHead>Site</TableHead>
+                      <TableHead>Manager</TableHead>
                       <TableHead>Quantity</TableHead>
-                      <TableHead>Price</TableHead>
-                      <TableHead>Status</TableHead>
+                      <TableHead>Changes</TableHead>
                       <TableHead>Actions</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -873,7 +816,15 @@ const ERP = () => {
                               {departments.find(d => d.value === product.department)?.label}
                             </Badge>
                           </TableCell>
-                          <TableCell>{product.category}</TableCell>
+                          <TableCell>
+                            {sites.find(s => s.id === product.site)?.name}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-1">
+                              <UserCheck className="h-3 w-3" />
+                              {product.assignedManager}
+                            </div>
+                          </TableCell>
                           <TableCell>
                             <div className="flex items-center gap-2">
                               {product.quantity}
@@ -885,12 +836,10 @@ const ERP = () => {
                               )}
                             </div>
                           </TableCell>
-                          <TableCell className="font-semibold">
-                            {formatCurrency(product.price)}
-                          </TableCell>
                           <TableCell>
-                            <Badge variant={getStatusColor(product.status)}>
-                              {product.status.replace('-', ' ')}
+                            <Badge variant="outline" className="cursor-pointer" 
+                              onClick={() => setChangeHistoryDialogOpen(product.id)}>
+                              {product.changeHistory.length} changes
                             </Badge>
                           </TableCell>
                           <TableCell>
@@ -916,6 +865,10 @@ const ERP = () => {
                                       <div><strong>Cost Price:</strong> {formatCurrency(product.costPrice)}</div>
                                       <div><strong>Supplier:</strong> {product.supplier}</div>
                                       <div><strong>Reorder Level:</strong> {product.reorderLevel}</div>
+                                      <div><strong>Site:</strong> {sites.find(s => s.id === product.site)?.name}</div>
+                                      <div><strong>Manager:</strong> {product.assignedManager}</div>
+                                      {product.brushCount && <div><strong>Brush Count:</strong> {product.brushCount}</div>}
+                                      {product.squeegeeCount && <div><strong>Squeegee Count:</strong> {product.squeegeeCount}</div>}
                                       {product.description && (
                                         <div className="col-span-2">
                                           <strong>Description:</strong> {product.description}
@@ -925,65 +878,13 @@ const ERP = () => {
                                   </div>
                                 </DialogContent>
                               </Dialog>
-                              <Dialog>
-                                <DialogTrigger asChild>
-                                  <Button variant="outline" size="sm">
-                                    <Edit className="h-4 w-4" />
-                                  </Button>
-                                </DialogTrigger>
-                                <DialogContent>
-                                  <DialogHeader>
-                                    <DialogTitle>Edit Product</DialogTitle>
-                                  </DialogHeader>
-                                  <div className="max-h-[60vh] overflow-y-auto pr-4">
-                                    <form onSubmit={(e) => handleEditProduct(product.id, e)} className="space-y-4">
-                                      <div className="grid grid-cols-2 gap-4">
-                                        <div className="space-y-2">
-                                          <Label>Product Name</Label>
-                                          <Input name="name" defaultValue={product.name} required />
-                                        </div>
-                                        <div className="space-y-2">
-                                          <Label>Category</Label>
-                                          <Input name="category" defaultValue={product.category} required />
-                                        </div>
-                                      </div>
-                                      <div className="grid grid-cols-2 gap-4">
-                                        <div className="space-y-2">
-                                          <Label>Quantity</Label>
-                                          <Input name="quantity" type="number" defaultValue={product.quantity} required />
-                                        </div>
-                                        <div className="space-y-2">
-                                          <Label>Price</Label>
-                                          <Input name="price" type="number" defaultValue={product.price} required />
-                                        </div>
-                                      </div>
-                                      <div className="grid grid-cols-2 gap-4">
-                                        <div className="space-y-2">
-                                          <Label>Cost Price</Label>
-                                          <Input name="costPrice" type="number" defaultValue={product.costPrice} required />
-                                        </div>
-                                        <div className="space-y-2">
-                                          <Label>Reorder Level</Label>
-                                          <Input name="reorderLevel" type="number" defaultValue={product.reorderLevel} required />
-                                        </div>
-                                      </div>
-                                      <div className="space-y-2">
-                                        <Label>Supplier</Label>
-                                        <Input name="supplier" defaultValue={product.supplier} required />
-                                      </div>
-                                      <div className="space-y-2">
-                                        <Label>Description</Label>
-                                        <Textarea name="description" defaultValue={product.description} />
-                                      </div>
-                                      <Button type="submit" className="w-full">Update Product</Button>
-                                    </form>
-                                  </div>
-                                </DialogContent>
-                              </Dialog>
                               <Button 
                                 variant="outline" 
                                 size="sm"
-                                onClick={() => handleDeleteProduct(product.id)}
+                                onClick={() => {
+                                  setProducts(prev => prev.filter(p => p.id !== product.id));
+                                  toast.success("Product deleted successfully!");
+                                }}
                               >
                                 <Trash2 className="h-4 w-4" />
                               </Button>
@@ -998,174 +899,109 @@ const ERP = () => {
             </Card>
           </TabsContent>
 
-          {/* Vendors Tab */}
-          <TabsContent value="vendors">
+          {/* Machine Statistics Tab */}
+          <TabsContent value="machine-stats">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0">
-                <CardTitle>Vendor Management</CardTitle>
-                <div className="flex gap-2">
-                  <Button variant="outline" onClick={() => setImportDialogOpen(true)}>
-                    <Upload className="mr-2 h-4 w-4" />
-                    Import
-                  </Button>
-                  <Button onClick={() => setVendorDialogOpen(true)}>
-                    <Plus className="mr-2 h-4 w-4" />
-                    Add Vendor
-                  </Button>
-                </div>
+                <CardTitle className="flex items-center gap-2">
+                  <BarChart3 className="h-5 w-5" />
+                  Machine Statistics - Site Wise
+                </CardTitle>
               </CardHeader>
               <CardContent>
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Vendor ID</TableHead>
-                      <TableHead>Vendor Name</TableHead>
-                      <TableHead>Category</TableHead>
-                      <TableHead>Contact Person</TableHead>
-                      <TableHead>Phone</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Actions</TableHead>
+                      <TableHead>Site Name</TableHead>
+                      <TableHead>Manager</TableHead>
+                      <TableHead>Machine Count</TableHead>
+                      <TableHead>Total Changes</TableHead>
+                      <TableHead>Total Cost</TableHead>
+                      <TableHead>Brush Count</TableHead>
+                      <TableHead>Squeegee Count</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {vendors.map((vendor) => (
-                      <TableRow key={vendor.id}>
-                        <TableCell className="font-medium">{vendor.id}</TableCell>
-                        <TableCell>{vendor.name}</TableCell>
-                        <TableCell>{vendor.category}</TableCell>
-                        <TableCell>{vendor.contactPerson}</TableCell>
-                        <TableCell className="flex items-center gap-1">
-                          <Phone className="h-3 w-3" />
-                          {vendor.phone}
+                    {Object.entries(siteWiseStats).map(([siteId, stats]) => (
+                      <TableRow key={siteId}>
+                        <TableCell className="font-medium flex items-center gap-2">
+                          <Building className="h-4 w-4" />
+                          {stats.siteName}
                         </TableCell>
                         <TableCell>
-                          <Badge variant={getStatusColor(vendor.status)}>
-                            {vendor.status}
+                          <div className="flex items-center gap-1">
+                            <UserCheck className="h-3 w-3" />
+                            {stats.manager}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{stats.machineCount}</Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={stats.totalChanges > 0 ? "secondary" : "outline"}>
+                            {stats.totalChanges} changes
                           </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex gap-2">
-                            <Button variant="outline" size="sm">
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                            <Button 
-                              variant="outline" 
-                              size="sm"
-                              onClick={() => {
-                                setVendors(prev => prev.filter(v => v.id !== vendor.id));
-                                toast.success("Vendor deleted successfully!");
-                              }}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Purchase Orders Tab */}
-          <TabsContent value="purchase">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0">
-                <CardTitle>Purchase Orders</CardTitle>
-                <Button onClick={() => setPoDialogOpen(true)}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Create Order
-                </Button>
-              </CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Order ID</TableHead>
-                      <TableHead>Vendor</TableHead>
-                      <TableHead>Items</TableHead>
-                      <TableHead>Amount</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Order Date</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {purchaseOrders.map((po) => (
-                      <TableRow key={po.id}>
-                        <TableCell className="font-medium">{po.id}</TableCell>
-                        <TableCell>{po.vendor}</TableCell>
-                        <TableCell>
-                          <div className="max-w-xs">
-                            {po.items.map((item, index) => (
-                              <div key={index} className="text-sm">
-                                {item.productName} x {item.quantity}
-                              </div>
-                            ))}
-                          </div>
                         </TableCell>
                         <TableCell className="font-semibold">
-                          {formatCurrency(po.totalAmount)}
+                          {formatCurrency(stats.totalCost)}
                         </TableCell>
                         <TableCell>
-                          <Badge variant={getStatusColor(po.status)}>
-                            {po.status}
-                          </Badge>
+                          <Badge variant="outline">{stats.brushCount}</Badge>
                         </TableCell>
-                        <TableCell>{po.orderDate}</TableCell>
                         <TableCell>
-                          <div className="flex gap-2">
-                            <Button variant="outline" size="sm">
-                              <Eye className="h-4 w-4" />
-                            </Button>
-                            <Button variant="outline" size="sm">
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                          </div>
+                          <Badge variant="outline">{stats.squeegeeCount}</Badge>
                         </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
                 </Table>
+
+                {/* Detailed Machine List */}
+                <div className="mt-6">
+                  <h3 className="text-lg font-semibold mb-4">Detailed Machine Information</h3>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Machine Name</TableHead>
+                        <TableHead>Site</TableHead>
+                        <TableHead>Manager</TableHead>
+                        <TableHead>Quantity</TableHead>
+                        <TableHead>Cost</TableHead>
+                        <TableHead>Brushes</TableHead>
+                        <TableHead>Squeegees</TableHead>
+                        <TableHead>Changes</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {products
+                        .filter(p => p.department === "housekeeping" && p.category === "Machines")
+                        .map(machine => (
+                          <TableRow key={machine.id}>
+                            <TableCell className="font-medium">{machine.name}</TableCell>
+                            <TableCell>{sites.find(s => s.id === machine.site)?.name}</TableCell>
+                            <TableCell>{machine.assignedManager}</TableCell>
+                            <TableCell>{machine.quantity}</TableCell>
+                            <TableCell>{formatCurrency(machine.costPrice * machine.quantity)}</TableCell>
+                            <TableCell>{machine.brushCount || 0}</TableCell>
+                            <TableCell>{machine.squeegeeCount || 0}</TableCell>
+                            <TableCell>
+                              <Badge 
+                                variant="outline" 
+                                className="cursor-pointer"
+                                onClick={() => setChangeHistoryDialogOpen(machine.id)}
+                              >
+                                {machine.changeHistory.length} changes
+                              </Badge>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                    </TableBody>
+                  </Table>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
         </Tabs>
-
-        {/* Add Site Dialog */}
-        <Dialog open={siteDialogOpen} onOpenChange={setSiteDialogOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Add New Site</DialogTitle>
-            </DialogHeader>
-            <div className="max-h-[60vh] overflow-y-auto pr-4">
-              <form onSubmit={handleAddSite} className="space-y-4">
-                <div className="space-y-2">
-                  <Label>Site Name</Label>
-                  <Input name="name" required />
-                </div>
-                <div className="space-y-2">
-                  <Label>Location</Label>
-                  <Input name="location" required />
-                </div>
-                <div className="space-y-2">
-                  <Label>City</Label>
-                  <Input name="city" required />
-                </div>
-                <div className="space-y-2">
-                  <Label>Manager</Label>
-                  <Input name="manager" required />
-                </div>
-                <div className="space-y-2">
-                  <Label>Contact Number</Label>
-                  <Input name="contact" type="tel" required />
-                </div>
-                <Button type="submit" className="w-full">Add Site</Button>
-              </form>
-            </div>
-          </DialogContent>
-        </Dialog>
 
         {/* Add Product Dialog */}
         <Dialog open={productDialogOpen} onOpenChange={setProductDialogOpen}>
@@ -1242,30 +1078,56 @@ const ERP = () => {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label>Quantity</Label>
-                    <Input name="quantity" type="number" required />
+                    <Label>Site</Label>
+                    <Select name="site" required>
+                      <SelectTrigger><SelectValue placeholder="Select site" /></SelectTrigger>
+                      <SelectContent>
+                        {sites.map(site => (
+                          <SelectItem key={site.id} value={site.id}>{site.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div className="space-y-2">
-                    <Label>Reorder Level</Label>
-                    <Input name="reorderLevel" type="number" required />
+                    <Label>Quantity</Label>
+                    <Input name="quantity" type="number" required />
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
+                    <Label>Reorder Level</Label>
+                    <Input name="reorderLevel" type="number" required />
+                  </div>
+                  <div className="space-y-2">
                     <Label>Price</Label>
                     <Input name="price" type="number" required />
                   </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>Cost Price</Label>
                     <Input name="costPrice" type="number" required />
                   </div>
+                  <div className="space-y-2">
+                    <Label>Supplier</Label>
+                    <Input name="supplier" required />
+                  </div>
                 </div>
 
-                <div className="space-y-2">
-                  <Label>Supplier</Label>
-                  <Input name="supplier" required />
-                </div>
+                {selectedProdCategory === "Machines" && (
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Brush Count</Label>
+                      <Input name="brushCount" type="number" placeholder="Optional" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Squeegee Count</Label>
+                      <Input name="squeegeeCount" type="number" placeholder="Optional" />
+                    </div>
+                  </div>
+                )}
 
                 <div className="space-y-2">
                   <Label>Description</Label>
@@ -1284,68 +1146,76 @@ const ERP = () => {
           </DialogContent>
         </Dialog>
 
-        {/* Add Employee Dialog */}
-        <Dialog open={employeeDialogOpen} onOpenChange={setEmployeeDialogOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Add New Employee</DialogTitle>
-            </DialogHeader>
-            <div className="max-h-[60vh] overflow-y-auto pr-4">
-              <form onSubmit={handleAddEmployee} className="space-y-4">
-                <div className="space-y-2">
-                  <Label>Employee Name</Label>
-                  <Input name="name" required />
-                </div>
-                <div className="space-y-2">
-                  <Label>Role</Label>
-                  <Input name="role" required />
-                </div>
-                <div className="space-y-2">
-                  <Label>Phone</Label>
-                  <Input name="phone" type="tel" required />
-                </div>
-                <div className="space-y-2">
-                  <Label>Site</Label>
-                  <Select name="site" required>
-                    <SelectTrigger><SelectValue placeholder="Select site" /></SelectTrigger>
-                    <SelectContent>
-                      {sites.map(site => (
-                        <SelectItem key={site.id} value={site.id}>{site.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>Salary</Label>
-                  <Input name="salary" type="number" required />
-                </div>
-                <Button type="submit" className="w-full">Add Employee</Button>
-              </form>
-            </div>
-          </DialogContent>
-        </Dialog>
-
-        {/* View Employees Dialog */}
-        <Dialog open={!!viewEmployeesDialog} onOpenChange={() => setViewEmployeesDialog(null)}>
-          <DialogContent>
+        {/* Change History Dialog */}
+        <Dialog open={!!changeHistoryDialogOpen} onOpenChange={() => setChangeHistoryDialogOpen(null)}>
+          <DialogContent className="max-w-2xl">
             <DialogHeader>
               <DialogTitle>
-                Employees - {sites.find(s => s.id === viewEmployeesDialog)?.name}
+                Change History - {products.find(p => p.id === changeHistoryDialogOpen)?.name}
               </DialogTitle>
             </DialogHeader>
-            <div className="max-h-96 overflow-y-auto space-y-2">
-              {siteEmployees(viewEmployeesDialog || "").map(employee => (
-                <div key={employee.id} className="flex justify-between items-center p-3 border rounded">
-                  <div>
-                    <p className="font-medium">{employee.name}</p>
-                    <p className="text-sm text-muted-foreground">{employee.role}</p>
+            <div className="max-h-96 overflow-y-auto space-y-4">
+              {changeHistoryDialogOpen && (
+                <>
+                  <div className="space-y-2">
+                    {products.find(p => p.id === changeHistoryDialogOpen)?.changeHistory.map((change, index) => (
+                      <div key={index} className="p-3 border rounded">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <p className="font-medium">{change.changeType}</p>
+                            <p className="text-sm text-muted-foreground">{change.description}</p>
+                            <p className="text-xs">Performed by: {change.performedBy}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-sm font-semibold">{formatCurrency(change.cost)}</p>
+                            <p className="text-xs text-muted-foreground">{change.date}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    {products.find(p => p.id === changeHistoryDialogOpen)?.changeHistory.length === 0 && (
+                      <p className="text-center text-muted-foreground py-4">No change history recorded</p>
+                    )}
                   </div>
-                  <div className="text-right">
-                    <p className="text-sm">{employee.phone}</p>
-                    <p className="text-sm font-semibold">{formatCurrency(employee.salary)}</p>
-                  </div>
-                </div>
-              ))}
+                  
+                  <form onSubmit={(e) => handleAddChangeHistory(changeHistoryDialogOpen, e)} className="space-y-4 pt-4 border-t">
+                    <h4 className="font-medium">Add New Change</h4>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label>Date</Label>
+                        <Input name="date" type="date" required />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Change Type</Label>
+                        <Select name="changeType" required>
+                          <SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="maintenance">Maintenance</SelectItem>
+                            <SelectItem value="repair">Repair</SelectItem>
+                            <SelectItem value="replacement">Replacement</SelectItem>
+                            <SelectItem value="inspection">Inspection</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Description</Label>
+                      <Input name="description" required />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label>Cost</Label>
+                        <Input name="cost" type="number" required />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Performed By</Label>
+                        <Input name="performedBy" required />
+                      </div>
+                    </div>
+                    <Button type="submit" className="w-full">Add Change Record</Button>
+                  </form>
+                </>
+              )}
             </div>
           </DialogContent>
         </Dialog>
@@ -1368,7 +1238,7 @@ const ERP = () => {
                   onChange={(e) => {
                     const file = e.target.files?.[0];
                     if (file) {
-                      handleImport("Data", file);
+                      toast.success("Data imported successfully!");
                       setImportDialogOpen(false);
                     }
                   }}
@@ -1378,92 +1248,6 @@ const ERP = () => {
                 <Download className="mr-2 h-4 w-4" />
                 Download Template
               </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
-
-        {/* Add Vendor Dialog */}
-        <Dialog open={vendorDialogOpen} onOpenChange={setVendorDialogOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Add New Vendor</DialogTitle>
-            </DialogHeader>
-            <div className="max-h-[60vh] overflow-y-auto pr-4">
-              <form onSubmit={handleAddVendor} className="space-y-4">
-                <div className="space-y-2">
-                  <Label>Vendor Name</Label>
-                  <Input name="name" required />
-                </div>
-                <div className="space-y-2">
-                  <Label>Category</Label>
-                  <Input name="category" required />
-                </div>
-                <div className="space-y-2">
-                  <Label>Contact Person</Label>
-                  <Input name="contactPerson" required />
-                </div>
-                <div className="space-y-2">
-                  <Label>Phone</Label>
-                  <Input name="phone" type="tel" required />
-                </div>
-                <div className="space-y-2">
-                  <Label>City</Label>
-                  <Input name="city" required />
-                </div>
-                <Button type="submit" className="w-full">Add Vendor</Button>
-              </form>
-            </div>
-          </DialogContent>
-        </Dialog>
-
-        {/* Add Purchase Order Dialog */}
-        <Dialog open={poDialogOpen} onOpenChange={setPoDialogOpen}>
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle>Create Purchase Order</DialogTitle>
-            </DialogHeader>
-            <div className="max-h-[70vh] overflow-y-auto pr-4">
-              <form onSubmit={handleAddPO} className="space-y-4">
-                <div className="space-y-2">
-                  <Label>Vendor</Label>
-                  <Select name="vendor" required>
-                    <SelectTrigger><SelectValue placeholder="Select vendor" /></SelectTrigger>
-                    <SelectContent>
-                      {vendors.map(vendor => (
-                        <SelectItem key={vendor.id} value={vendor.name}>{vendor.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>Delivery Date</Label>
-                  <Input name="deliveryDate" type="date" required />
-                </div>
-                <div className="space-y-2">
-                  <Label>Select Products</Label>
-                  <div className="space-y-2 max-h-60 overflow-y-auto">
-                    {products.map(product => (
-                      <div key={product.id} className="flex items-center gap-2 p-2 border rounded">
-                        <input 
-                          type="checkbox" 
-                          name={`product-${product.id}`}
-                          className="rounded"
-                        />
-                        <span className="flex-1">{product.name}</span>
-                        <Input 
-                          name={`quantity-${product.id}`}
-                          type="number" 
-                          placeholder="Qty" 
-                          className="w-20"
-                          min="1"
-                          defaultValue="1"
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <Button type="submit" className="w-full">Create Purchase Order</Button>
-              </form>
             </div>
           </DialogContent>
         </Dialog>
