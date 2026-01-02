@@ -1,40 +1,73 @@
 import express, { Application, Request, Response } from 'express';
 import cors from 'cors';
 import connectDB from './config/database';
-import { IUser, User } from './models/User';
+import User, { IUser } from './models/User'; // Fixed import - User is default export
 import mongoose from 'mongoose';
+import clientRoutes from './routes/clientRoutes';
+import leadRoutes from './routes/leadRoutes';
+import communicationRoutes from './routes/communicationRoutes';
+import authRoutes from './routes/authRoutes'; // Import authRoutes instead of userRoutes
+import expenseRoutes from './routes/expenseRoutes';
+import serviceRoutes from './routes/serviceRoutes';
 
 const app: Application = express();
 
-// Middleware
-// app.use(cors({
-//   origin: ['http://localhost:8081', 'http://localhost:8080', 'http://localhost:3000', 'http://localhost:5173'],
-//   credentials: true,
-//   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-//   allowedHeaders: ['Content-Type', 'Authorization']
-// }));
-app.use(cors()); 
+// CORS configuration
+app.use(cors({
+  origin: ['http://localhost:5173', 'http://localhost:3000', 'http://localhost:8080'],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Content-Length', 'X-Requested-With']
+}));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Connect to Database
 connectDB();
 
+// Disable caching middleware
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api')) {
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+  }
+  next();
+});
+
+// Test endpoint
+app.get('/api/test', (req: Request, res: Response) => {
+  res.json({ 
+    success: true, 
+    message: 'Backend API is working!',
+    timestamp: new Date().toISOString()
+  });
+});
+
 // Health check
 app.get('/', (req: Request, res: Response) => {
   res.json({ 
     message: 'Backend API is running!',
-    database: mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected'
+    database: mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected',
+    version: '1.0.0',
+    services: ['auth', 'users', 'crm']
   });
 });
 
 app.get('/api/health', (req: Request, res: Response) => {
   res.json({ 
+    success: true,
     status: 'OK',
     timestamp: new Date().toISOString(),
     database: mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected'
   });
 });
+
+// ============ AUTH ROUTES ============
+app.use('/api/auth', authRoutes);
+
+// ============ USER ROUTES ============
 
 // CREATE - Add new user
 app.post('/api/users', async (req: Request, res: Response) => {
@@ -119,14 +152,14 @@ app.get('/api/users', async (req: Request, res: Response) => {
     // 1️⃣ Fetch users (latest first)
     const users = await User.find().sort({ createdAt: -1 });
 
-    // 2️⃣ Transform users safely (NO toISOString here)
-    const transformedUsers = users.map(user => ({
+    // 2️⃣ Transform users safely
+    const transformedUsers = users.map((user: IUser) => ({
       ...user.toJSON(),
       id: user._id.toString().slice(-6)
     }));
 
     // 3️⃣ Group users by role
-    const groupedByRole = transformedUsers.reduce((acc: any, user) => {
+    const groupedByRole = transformedUsers.reduce((acc: any, user: any) => {
       if (!acc[user.role]) {
         acc[user.role] = [];
       }
@@ -140,8 +173,8 @@ app.get('/api/users', async (req: Request, res: Response) => {
       allUsers: transformedUsers,
       groupedByRole,
       total: transformedUsers.length,
-      active: transformedUsers.filter(u => u.isActive).length,
-      inactive: transformedUsers.filter(u => !u.isActive).length
+      active: transformedUsers.filter((u: any) => u.isActive).length,
+      inactive: transformedUsers.filter((u: any) => !u.isActive).length
     });
   } catch (error: any) {
     console.error('GET /api/users failed:', error);
@@ -151,6 +184,7 @@ app.get('/api/users', async (req: Request, res: Response) => {
     });
   }
 });
+
 // Get user statistics
 app.get('/api/users/stats', async (req: Request, res: Response) => {
   try {
@@ -357,7 +391,77 @@ app.put('/api/users/:id/role', async (req: Request, res: Response) => {
   }
 });
 
-// 404 handler
+// ============ CRM ROUTES ============
+
+// Use imported CRM routes
+app.use('/api/crm/clients', clientRoutes);
+app.use('/api/crm/leads', leadRoutes);
+app.use('/api/crm/communications', communicationRoutes);
+
+// CRM Dashboard Stats
+app.get('/api/crm/stats', async (req: Request, res: Response) => {
+  try {
+    // Dynamically import models to avoid circular dependencies
+    const Client = (await import('./models/Client')).default;
+    const Lead = (await import('./models/Lead')).default;
+    const Communication = (await import('./models/Communication')).default;
+    
+    // Get counts
+    const [clientsCount, leadsCount, communicationsCount] = await Promise.all([
+      Client.countDocuments(),
+      Lead.countDocuments({ status: { $nin: ['closed-won', 'closed-lost'] } }),
+      Communication.countDocuments()
+    ]);
+
+    // Calculate total value from clients
+    const allClients = await Client.find({}, 'value');
+    const totalValue = allClients.reduce((sum: number, client: any) => {
+      const valueStr = client.value || '0';
+      const numericValue = parseFloat(valueStr.replace(/[₹,]/g, '')) || 0;
+      return sum + numericValue;
+    }, 0);
+    
+    // Format total value
+    let formattedValue = '₹0';
+    if (totalValue >= 10000000) { // 1 crore or more
+      formattedValue = `₹${(totalValue / 10000000).toFixed(1)}Cr`;
+    } else if (totalValue >= 100000) { // 1 lakh or more
+      formattedValue = `₹${(totalValue / 100000).toFixed(1)}L`;
+    } else {
+      formattedValue = `₹${totalValue.toLocaleString('en-IN')}`;
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        totalClients: clientsCount,
+        activeLeads: leadsCount,
+        totalValue: formattedValue,
+        communications: communicationsCount
+      }
+    });
+  } catch (error: any) {
+    console.error('CRM stats error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Error fetching CRM stats',
+      data: {
+        totalClients: 0,
+        activeLeads: 0,
+        totalValue: '₹0',
+        communications: 0
+      }
+    });
+  }
+});
+// ============ EXPENSE ROUTES ============
+app.use('/api/expenses', expenseRoutes);
+// ============ SERVICE ROUTES ============
+app.use('/api/services', serviceRoutes);
+
+// ============ 404 HANDLER ============
+
+// 404 handler for undefined routes
 app.use((req: Request, res: Response) => {
   res.status(404).json({
     success: false,
@@ -365,7 +469,6 @@ app.use((req: Request, res: Response) => {
   });
 });
 
-const PORT = process.env.PORT || 5001; // Changed to 5001
-
+const PORT = process.env.PORT || 5001;
 
 export default app;

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { DashboardHeader } from "@/components/shared/DashboardHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,12 +10,15 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, Plus, Edit, Trash2, Phone, Mail, Calendar, Eye, MapPin, Building } from "lucide-react";
+import { Search, Plus, Edit, Trash2, Phone, Mail, Calendar, Eye, MapPin, Building, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 
+// Base URL for your backend
+const API_BASE_URL = "http://localhost:5001/api";
+
 interface Client {
-  id: string;
+  _id: string;
   name: string;
   company: string;
   email: string;
@@ -26,10 +29,12 @@ interface Client {
   value: string;
   industry: string;
   contactPerson: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 interface Lead {
-  id: string;
+  _id: string;
   name: string;
   company: string;
   email: string;
@@ -40,34 +45,181 @@ interface Lead {
   assignedTo: string;
   followUpDate: string;
   notes: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 interface Communication {
-  id: string;
+  _id: string;
   clientName: string;
-  clientId: string;
+  clientId: {
+    _id: string;
+    name: string;
+    company: string;
+    email: string;
+  } | string;
   type: "call" | "email" | "meeting" | "demo";
   date: string;
   notes: string;
   followUpRequired: boolean;
   followUpDate?: string;
+  createdAt: string;
 }
+const api = {
+  async getCRMStats() {
+    const timestamp = new Date().getTime();
+    const res = await fetch(`${API_BASE_URL}/crm/stats?t=${timestamp}`);
+    if (!res.ok) throw new Error('Failed to fetch CRM stats');
+    return res.json();
+  },
 
-// Indian Data
-const indianNames = {
-  male: ["Rajesh Kumar", "Amit Sharma", "Sanjay Patel", "Vikram Singh", "Arun Reddy", "Mohan Das", "Suresh Iyer", "Prakash Joshi"],
-  female: ["Priya Sharma", "Anjali Singh", "Sunita Reddy", "Kavita Patel", "Meera Iyer", "Laxmi Kumar", "Sonia Das", "Neha Joshi"]
+  async getClients(search?: string) {
+    const timestamp = new Date().getTime();
+    const url = search 
+      ? `${API_BASE_URL}/crm/clients?search=${encodeURIComponent(search)}&t=${timestamp}` 
+      : `${API_BASE_URL}/crm/clients?t=${timestamp}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('Failed to fetch clients');
+    return res.json();
+  },
+
+  async createClient(data: Omit<Client, '_id' | 'createdAt' | 'updatedAt'>) {
+    const res = await fetch(`${API_BASE_URL}/crm/clients`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.message || 'Failed to create client');
+    }
+    return res.json();
+  },
+
+  async updateClient(id: string, data: Partial<Client>) {
+    const res = await fetch(`${API_BASE_URL}/crm/clients/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.message || 'Failed to update client');
+    }
+    return res.json();
+  },
+
+  async deleteClient(id: string) {
+    const res = await fetch(`${API_BASE_URL}/crm/clients/${id}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.message || 'Failed to delete client');
+    }
+    return res.json();
+  },
+
+  // Leads
+  async getLeads(search?: string) {
+    const url = search 
+      ? `${API_BASE_URL}/crm/leads?search=${encodeURIComponent(search)}` 
+      : `${API_BASE_URL}/crm/leads`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('Failed to fetch leads');
+    return res.json();
+  },
+
+  async createLead(data: Omit<Lead, '_id' | 'createdAt' | 'updatedAt'>) {
+    const res = await fetch(`${API_BASE_URL}/crm/leads`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.message || 'Failed to create lead');
+    }
+    return res.json();
+  },
+
+  async updateLead(id: string, data: Partial<Lead>) {
+    const res = await fetch(`${API_BASE_URL}/crm/leads/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.message || 'Failed to update lead');
+    }
+    return res.json();
+  },
+
+  async updateLeadStatus(id: string, status: Lead['status']) {
+    const res = await fetch(`${API_BASE_URL}/crm/leads/${id}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status })
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.message || 'Failed to update lead status');
+    }
+    return res.json();
+  },
+
+  async deleteLead(id: string) {
+    const res = await fetch(`${API_BASE_URL}/crm/leads/${id}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.message || 'Failed to delete lead');
+    }
+    return res.json();
+  },
+
+  // Communications
+  async getCommunications(search?: string) {
+    const url = search 
+      ? `${API_BASE_URL}/crm/communications?search=${encodeURIComponent(search)}` 
+      : `${API_BASE_URL}/crm/communications`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('Failed to fetch communications');
+    return res.json();
+  },
+
+  async createCommunication(data: Omit<Communication, '_id' | 'createdAt'>) {
+    const res = await fetch(`${API_BASE_URL}/crm/communications`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.message || 'Failed to create communication');
+    }
+    return res.json();
+  },
+
+  async deleteCommunication(id: string) {
+    const res = await fetch(`${API_BASE_URL}/crm/communications/${id}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.message || 'Failed to delete communication');
+    }
+    return res.json();
+  }
 };
 
-const indianCompanies = [
-  "Reliance Industries", "Tata Group", "Infosys", "Wipro", "HDFC Bank", 
-  "ICICI Bank", "Mahindra & Mahindra", "Bajaj Auto", "Tech Mahindra", "Larsen & Toubro"
-];
-
+// Indian Data constants
 const indianCities = ["Mumbai", "Delhi", "Bangalore", "Hyderabad", "Chennai", "Kolkata", "Pune", "Ahmedabad"];
 const industries = ["IT Services", "Manufacturing", "Banking", "Healthcare", "Education", "Real Estate", "Retail", "Automobile"];
-
-const generateIndianPhone = () => `9${Math.floor(100000000 + Math.random() * 900000000)}`;
+const leadSources = ["Website", "Referral", "Cold Call", "Social Media", "Email Campaign", "Trade Show"];
+const communicationTypes = ["call", "email", "meeting", "demo"];
 
 const CRM = () => {
   const [searchQuery, setSearchQuery] = useState("");
@@ -76,151 +228,151 @@ const CRM = () => {
   const [commDialogOpen, setCommDialogOpen] = useState(false);
   const [viewClientDialog, setViewClientDialog] = useState<string | null>(null);
   const [viewLeadDialog, setViewLeadDialog] = useState<string | null>(null);
+  const [editingClient, setEditingClient] = useState<Client | null>(null);
+  const [editingLead, setEditingLead] = useState<Lead | null>(null);
+  const [loading, setLoading] = useState({
+    clients: false,
+    leads: false,
+    communications: false,
+    stats: false
+  });
 
-  const [clients, setClients] = useState<Client[]>([
-    { 
-      id: "1", 
-      name: "Rajesh Kumar", 
-      company: "Reliance Industries", 
-      email: "rajesh.kumar@reliance.com", 
-      phone: "9876543210", 
-      address: "Nariman Point", 
-      city: "Mumbai",
-      status: "active", 
-      value: "₹50,00,000", 
-      industry: "Manufacturing",
-      contactPerson: "Rajesh Kumar"
-    },
-    { 
-      id: "2", 
-      name: "Priya Sharma", 
-      company: "Infosys Ltd", 
-      email: "priya.sharma@infosys.com", 
-      phone: "9876543211", 
-      address: "Electronic City", 
-      city: "Bangalore",
-      status: "active", 
-      value: "₹75,00,000", 
-      industry: "IT Services",
-      contactPerson: "Priya Sharma"
-    },
-    { 
-      id: "3", 
-      name: "Amit Patel", 
-      company: "HDFC Bank", 
-      email: "amit.patel@hdfc.com", 
-      phone: "9876543212", 
-      address: "MG Road", 
-      city: "Delhi",
-      status: "inactive", 
-      value: "₹25,00,000", 
-      industry: "Banking",
-      contactPerson: "Amit Patel"
-    }
-  ]);
+  const [stats, setStats] = useState({
+    totalClients: 0,
+    activeLeads: 0,
+    totalValue: "₹0",
+    communications: 0
+  });
 
-  const [leads, setLeads] = useState<Lead[]>([
-    { 
-      id: "1", 
-      name: "Sanjay Singh", 
-      company: "Tech Solutions", 
-      email: "sanjay@techsolutions.com", 
-      phone: "9876543213", 
-      source: "Website", 
-      status: "new", 
-      value: "₹30,00,000", 
-      assignedTo: "Sales Manager A",
-      followUpDate: "2024-01-20",
-      notes: "Interested in enterprise solution"
-    },
-    { 
-      id: "2", 
-      name: "Neha Reddy", 
-      company: "Digital Innovations", 
-      email: "neha@digital.com", 
-      phone: "9876543214", 
-      source: "Referral", 
-      status: "contacted", 
-      value: "₹45,00,000", 
-      assignedTo: "Sales Manager B",
-      followUpDate: "2024-01-18",
-      notes: "Requested product demo"
-    },
-    { 
-      id: "3", 
-      name: "Vikram Mehta", 
-      company: "Startup India", 
-      email: "vikram@startupindia.com", 
-      phone: "9876543215", 
-      source: "Social Media", 
-      status: "qualified", 
-      value: "₹20,00,000", 
-      assignedTo: "Sales Manager A",
-      followUpDate: "2024-01-22",
-      notes: "Budget approved, waiting for proposal"
-    }
-  ]);
+  const [clients, setClients] = useState<Client[]>([]);
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [communications, setCommunications] = useState<Communication[]>([]);
 
-  const [communications, setCommunications] = useState<Communication[]>([
-    { 
-      id: "1", 
-      clientName: "Rajesh Kumar", 
-      clientId: "1",
-      type: "call", 
-      date: "2024-01-15", 
-      notes: "Discussed project requirements and timeline. Client showed interest in premium package.",
-      followUpRequired: true,
-      followUpDate: "2024-01-20"
-    },
-    { 
-      id: "2", 
-      clientName: "Priya Sharma", 
-      clientId: "2",
-      type: "meeting", 
-      date: "2024-01-14", 
-      notes: "Product demonstration completed. Client requested customized features.",
-      followUpRequired: true,
-      followUpDate: "2024-01-18"
-    },
-    { 
-      id: "3", 
-      clientName: "Sanjay Singh", 
-      clientId: "1",
-      type: "email", 
-      date: "2024-01-13", 
-      notes: "Sent proposal document with pricing and implementation plan.",
-      followUpRequired: false
-    }
-  ]);
+  // Fetch data on component mount
+  useEffect(() => {
+    fetchAllData();
+  }, []);
 
-  // Client Functions
-  const handleAddClient = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    const newClient: Client = {
-      id: Date.now().toString(),
-      name: formData.get("name") as string,
-      company: formData.get("company") as string,
-      email: formData.get("email") as string,
-      phone: formData.get("phone") as string,
-      address: formData.get("address") as string,
-      city: formData.get("city") as string,
-      status: "active",
-      value: formData.get("value") as string,
-      industry: formData.get("industry") as string,
-      contactPerson: formData.get("contactPerson") as string,
-    };
-    setClients(prev => [newClient, ...prev]);
-    toast.success("Client added successfully!");
-    setClientDialogOpen(false);
+  // Fetch all data
+  const fetchAllData = async () => {
+    await Promise.all([
+      fetchStats(),
+      fetchClients(),
+      fetchLeads(),
+      fetchCommunications()
+    ]);
   };
 
-  const handleEditClient = (clientId: string, e: React.FormEvent<HTMLFormElement>) => {
+  // Fetch Stats
+  const fetchStats = async () => {
+    try {
+      setLoading(prev => ({ ...prev, stats: true }));
+      const result = await api.getCRMStats();
+      if (result.success) {
+        setStats(result.data);
+      }
+    } catch (error: any) {
+      console.error("Failed to fetch stats:", error);
+      toast.error("Failed to load CRM statistics");
+    } finally {
+      setLoading(prev => ({ ...prev, stats: false }));
+    }
+  };
+
+  // Fetch Clients
+  const fetchClients = async () => {
+    try {
+      setLoading(prev => ({ ...prev, clients: true }));
+      const result = await api.getClients(searchQuery);
+      if (result.success) {
+        setClients(result.data);
+      }
+    } catch (error: any) {
+      toast.error(error.message || "Failed to fetch clients");
+    } finally {
+      setLoading(prev => ({ ...prev, clients: false }));
+    }
+  };
+
+  // Fetch Leads
+  const fetchLeads = async () => {
+    try {
+      setLoading(prev => ({ ...prev, leads: true }));
+      const result = await api.getLeads(searchQuery);
+      if (result.success) {
+        setLeads(result.data);
+      }
+    } catch (error: any) {
+      toast.error(error.message || "Failed to fetch leads");
+    } finally {
+      setLoading(prev => ({ ...prev, leads: false }));
+    }
+  };
+
+  // Fetch Communications
+  const fetchCommunications = async () => {
+    try {
+      setLoading(prev => ({ ...prev, communications: true }));
+      const result = await api.getCommunications(searchQuery);
+      if (result.success) {
+        setCommunications(result.data);
+      }
+    } catch (error: any) {
+      toast.error(error.message || "Failed to fetch communications");
+    } finally {
+      setLoading(prev => ({ ...prev, communications: false }));
+    }
+  };
+
+  // Handle search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchClients();
+      fetchLeads();
+      fetchCommunications();
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // Client Functions
+  const handleAddClient = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
-    setClients(prev => prev.map(client => 
-      client.id === clientId ? {
-        ...client,
+    
+    try {
+      const newClient = {
+        name: formData.get("name") as string,
+        company: formData.get("company") as string,
+        email: formData.get("email") as string,
+        phone: formData.get("phone") as string,
+        address: formData.get("address") as string || "",
+        city: formData.get("city") as string || "Mumbai",
+        status: "active" as const,
+        value: formData.get("value") as string,
+        industry: formData.get("industry") as string || "IT Services",
+        contactPerson: formData.get("contactPerson") as string || "",
+      };
+
+      const result = await api.createClient(newClient);
+      if (result.success) {
+        toast.success("Client added successfully!");
+        setClientDialogOpen(false);
+        fetchAllData();
+      }
+    } catch (error: any) {
+      toast.error(error.message || "Failed to add client");
+    }
+  };
+
+  const handleEditClient = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!editingClient) return;
+    
+    const formData = new FormData(e.currentTarget);
+    
+    try {
+      const updateData = {
         name: formData.get("name") as string,
         company: formData.get("company") as string,
         email: formData.get("email") as string,
@@ -230,45 +382,71 @@ const CRM = () => {
         value: formData.get("value") as string,
         industry: formData.get("industry") as string,
         contactPerson: formData.get("contactPerson") as string,
-      } : client
-    ));
-    toast.success("Client updated successfully!");
+      };
+
+      const result = await api.updateClient(editingClient._id, updateData);
+      if (result.success) {
+        toast.success("Client updated successfully!");
+        setEditingClient(null);
+        fetchAllData();
+      }
+    } catch (error: any) {
+      toast.error(error.message || "Failed to update client");
+    }
   };
 
-  const handleDeleteClient = (clientId: string) => {
-    setClients(prev => prev.filter(c => c.id !== clientId));
-    setCommunications(prev => prev.filter(comm => comm.clientId !== clientId));
-    toast.success("Client deleted successfully!");
+  const handleDeleteClient = async (clientId: string) => {
+    if (!confirm("Are you sure you want to delete this client?")) return;
+    
+    try {
+      const result = await api.deleteClient(clientId);
+      if (result.success) {
+        toast.success("Client deleted successfully!");
+        fetchAllData();
+      }
+    } catch (error: any) {
+      toast.error(error.message || "Failed to delete client");
+    }
   };
 
   // Lead Functions
-  const handleAddLead = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleAddLead = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
-    const newLead: Lead = {
-      id: Date.now().toString(),
-      name: formData.get("name") as string,
-      company: formData.get("company") as string,
-      email: formData.get("email") as string,
-      phone: formData.get("phone") as string,
-      source: formData.get("source") as string,
-      status: "new",
-      value: formData.get("value") as string,
-      assignedTo: formData.get("assignedTo") as string,
-      followUpDate: formData.get("followUpDate") as string,
-      notes: formData.get("notes") as string,
-    };
-    setLeads(prev => [newLead, ...prev]);
-    toast.success("Lead added successfully!");
-    setLeadDialogOpen(false);
+    
+    try {
+      const newLead = {
+        name: formData.get("name") as string,
+        company: formData.get("company") as string,
+        email: formData.get("email") as string,
+        phone: formData.get("phone") as string,
+        source: formData.get("source") as string,
+        status: "new" as const,
+        value: formData.get("value") as string,
+        assignedTo: formData.get("assignedTo") as string,
+        followUpDate: formData.get("followUpDate") as string || "",
+        notes: formData.get("notes") as string || "",
+      };
+
+      const result = await api.createLead(newLead);
+      if (result.success) {
+        toast.success("Lead added successfully!");
+        setLeadDialogOpen(false);
+        fetchAllData();
+      }
+    } catch (error: any) {
+      toast.error(error.message || "Failed to add lead");
+    }
   };
 
-  const handleEditLead = (leadId: string, e: React.FormEvent<HTMLFormElement>) => {
+  const handleEditLead = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (!editingLead) return;
+    
     const formData = new FormData(e.currentTarget);
-    setLeads(prev => prev.map(lead => 
-      lead.id === leadId ? {
-        ...lead,
+    
+    try {
+      const updateData = {
         name: formData.get("name") as string,
         company: formData.get("company") as string,
         email: formData.get("email") as string,
@@ -278,45 +456,84 @@ const CRM = () => {
         assignedTo: formData.get("assignedTo") as string,
         followUpDate: formData.get("followUpDate") as string,
         notes: formData.get("notes") as string,
-      } : lead
-    ));
-    toast.success("Lead updated successfully!");
+      };
+
+      const result = await api.updateLead(editingLead._id, updateData);
+      if (result.success) {
+        toast.success("Lead updated successfully!");
+        setEditingLead(null);
+        fetchAllData();
+      }
+    } catch (error: any) {
+      toast.error(error.message || "Failed to update lead");
+    }
   };
 
-  const handleDeleteLead = (leadId: string) => {
-    setLeads(prev => prev.filter(l => l.id !== leadId));
-    toast.success("Lead deleted successfully!");
+  const handleDeleteLead = async (leadId: string) => {
+    if (!confirm("Are you sure you want to delete this lead?")) return;
+    
+    try {
+      const result = await api.deleteLead(leadId);
+      if (result.success) {
+        toast.success("Lead deleted successfully!");
+        fetchAllData();
+      }
+    } catch (error: any) {
+      toast.error(error.message || "Failed to delete lead");
+    }
   };
 
-  const handleLeadStatusChange = (leadId: string, newStatus: Lead['status']) => {
-    setLeads(prev => prev.map(lead => 
-      lead.id === leadId ? { ...lead, status: newStatus } : lead
-    ));
-    toast.success("Lead status updated!");
+  const handleLeadStatusChange = async (leadId: string, newStatus: Lead['status']) => {
+    try {
+      const result = await api.updateLeadStatus(leadId, newStatus);
+      if (result.success) {
+        toast.success("Lead status updated!");
+        fetchAllData();
+      }
+    } catch (error: any) {
+      toast.error(error.message || "Failed to update lead status");
+    }
   };
 
   // Communication Functions
-  const handleAddCommunication = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleAddCommunication = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
-    const newComm: Communication = {
-      id: Date.now().toString(),
-      clientName: formData.get("clientName") as string,
-      clientId: formData.get("clientId") as string,
-      type: formData.get("type") as "call" | "email" | "meeting" | "demo",
-      date: formData.get("date") as string,
-      notes: formData.get("notes") as string,
-      followUpRequired: formData.get("followUpRequired") === "on",
-      followUpDate: formData.get("followUpDate") as string || undefined,
-    };
-    setCommunications(prev => [newComm, ...prev]);
-    toast.success("Communication logged successfully!");
-    setCommDialogOpen(false);
+    
+    try {
+      const newComm = {
+        clientName: formData.get("clientName") as string,
+        clientId: formData.get("clientId") as string,
+        type: formData.get("type") as "call" | "email" | "meeting" | "demo",
+        date: formData.get("date") as string,
+        notes: formData.get("notes") as string,
+        followUpRequired: formData.get("followUpRequired") === "on",
+        followUpDate: formData.get("followUpDate") as string || undefined,
+      };
+
+      const result = await api.createCommunication(newComm);
+      if (result.success) {
+        toast.success("Communication logged successfully!");
+        setCommDialogOpen(false);
+        fetchAllData();
+      }
+    } catch (error: any) {
+      toast.error(error.message || "Failed to log communication");
+    }
   };
 
-  const handleDeleteCommunication = (commId: string) => {
-    setCommunications(prev => prev.filter(c => c.id !== commId));
-    toast.success("Communication deleted!");
+  const handleDeleteCommunication = async (commId: string) => {
+    if (!confirm("Are you sure you want to delete this communication?")) return;
+    
+    try {
+      const result = await api.deleteCommunication(commId);
+      if (result.success) {
+        toast.success("Communication deleted!");
+        fetchAllData();
+      }
+    } catch (error: any) {
+      toast.error(error.message || "Failed to delete communication");
+    }
   };
 
   // Utility Functions
@@ -348,25 +565,47 @@ const CRM = () => {
     }
   };
 
-  const filteredClients = clients.filter(client =>
-    client.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    client.company.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    client.email.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const getCommunicationTypeIcon = (type: string) => {
+    switch (type) {
+      case "call": return <Phone className="h-3 w-3 mr-1" />;
+      case "email": return <Mail className="h-3 w-3 mr-1" />;
+      case "meeting": return <Calendar className="h-3 w-3 mr-1" />;
+      case "demo": return <Eye className="h-3 w-3 mr-1" />;
+      default: return null;
+    }
+  };
 
-  const filteredLeads = leads.filter(lead =>
-    lead.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    lead.company.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    lead.email.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const getClientById = (id: string) => clients.find(client => client._id === id);
+  const getLeadById = (id: string) => leads.find(lead => lead._id === id);
 
-  const filteredCommunications = communications.filter(comm =>
-    comm.clientName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    comm.notes.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // Format date for display
+  const formatDate = (dateString: string) => {
+    try {
+      if (!dateString) return "N/A";
+      return new Date(dateString).toLocaleDateString('en-IN', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric'
+      });
+    } catch {
+      return dateString;
+    }
+  };
 
-  const getClientById = (id: string) => clients.find(client => client.id === id);
-  const getLeadById = (id: string) => leads.find(lead => lead.id === id);
+  const formatDateTime = (dateString: string) => {
+    try {
+      if (!dateString) return "N/A";
+      return new Date(dateString).toLocaleString('en-IN', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch {
+      return dateString;
+    }
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -377,13 +616,16 @@ const CRM = () => {
         animate={{ opacity: 1, y: 0 }}
         className="p-6 space-y-6"
       >
+        {/* Stats Cards */}
         <div className="grid gap-4 md:grid-cols-4">
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium">Total Clients</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{clients.length}</div>
+              <div className="text-2xl font-bold">
+                {loading.stats ? <Loader2 className="h-6 w-6 animate-spin" /> : stats.totalClients}
+              </div>
             </CardContent>
           </Card>
           <Card>
@@ -392,7 +634,7 @@ const CRM = () => {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-primary">
-                {leads.filter(l => !l.status.includes('closed')).length}
+                {loading.stats ? <Loader2 className="h-6 w-6 animate-spin" /> : stats.activeLeads}
               </div>
             </CardContent>
           </Card>
@@ -401,7 +643,9 @@ const CRM = () => {
               <CardTitle className="text-sm font-medium">Total Value</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">₹2.5Cr</div>
+              <div className="text-2xl font-bold">
+                {loading.stats ? <Loader2 className="h-6 w-6 animate-spin" /> : stats.totalValue}
+              </div>
             </CardContent>
           </Card>
           <Card>
@@ -409,11 +653,14 @@ const CRM = () => {
               <CardTitle className="text-sm font-medium">Communications</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{communications.length}</div>
+              <div className="text-2xl font-bold">
+                {loading.stats ? <Loader2 className="h-6 w-6 animate-spin" /> : stats.communications}
+              </div>
             </CardContent>
           </Card>
         </div>
 
+        {/* Main Tabs */}
         <Tabs defaultValue="clients" className="w-full">
           <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="clients">Clients</TabsTrigger>
@@ -421,6 +668,7 @@ const CRM = () => {
             <TabsTrigger value="communications">Communications</TabsTrigger>
           </TabsList>
 
+          {/* Clients Tab */}
           <TabsContent value="clients">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0">
@@ -471,7 +719,7 @@ const CRM = () => {
                           </div>
                           <div className="space-y-2">
                             <Label htmlFor="industry">Industry</Label>
-                            <Select name="industry">
+                            <Select name="industry" defaultValue="IT Services">
                               <SelectTrigger>
                                 <SelectValue placeholder="Select industry" />
                               </SelectTrigger>
@@ -486,7 +734,7 @@ const CRM = () => {
                         <div className="grid grid-cols-2 gap-4">
                           <div className="space-y-2">
                             <Label htmlFor="city">City</Label>
-                            <Select name="city">
+                            <Select name="city" defaultValue="Mumbai">
                               <SelectTrigger>
                                 <SelectValue placeholder="Select city" />
                               </SelectTrigger>
@@ -513,181 +761,241 @@ const CRM = () => {
                 </div>
               </CardHeader>
               <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Company</TableHead>
-                      <TableHead>Contact</TableHead>
-                      <TableHead>Industry</TableHead>
-                      <TableHead>Value</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredClients.map((client) => (
-                      <TableRow key={client.id}>
-                        <TableCell className="font-medium">{client.name}</TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-1">
-                            <Building className="h-3 w-3" />
-                            {client.company}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex flex-col gap-1">
-                            <div className="flex items-center gap-1 text-sm">
-                              <Mail className="h-3 w-3" />
-                              {client.email}
-                            </div>
-                            <div className="flex items-center gap-1 text-sm">
-                              <Phone className="h-3 w-3" />
-                              {client.phone}
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell>{client.industry}</TableCell>
-                        <TableCell className="font-semibold">{client.value}</TableCell>
-                        <TableCell>
-                          <Badge variant={getStatusColor(client.status)}>
-                            {client.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex gap-2">
-                            <Dialog>
-                              <DialogTrigger asChild>
-                                <Button variant="outline" size="sm" onClick={() => setViewClientDialog(client.id)}>
-                                  <Eye className="h-4 w-4" />
-                                </Button>
-                              </DialogTrigger>
-                              <DialogContent>
-                                <DialogHeader>
-                                  <DialogTitle>Client Details</DialogTitle>
-                                </DialogHeader>
-                                {viewClientDialog && getClientById(viewClientDialog) && (() => {
-                                  const client = getClientById(viewClientDialog)!;
-                                  return (
-                                    <div className="space-y-4">
-                                      <div className="grid grid-cols-2 gap-4">
-                                        <div><strong>Name:</strong> {client.name}</div>
-                                        <div><strong>Company:</strong> {client.company}</div>
-                                        <div><strong>Email:</strong> {client.email}</div>
-                                        <div><strong>Phone:</strong> {client.phone}</div>
-                                        <div><strong>Industry:</strong> {client.industry}</div>
-                                        <div><strong>City:</strong> {client.city}</div>
-                                        <div><strong>Value:</strong> {client.value}</div>
-                                        <div><strong>Status:</strong> {client.status}</div>
-                                      </div>
-                                      {client.address && (
-                                        <div>
-                                          <strong>Address:</strong>
-                                          <div className="flex items-center gap-1 mt-1">
-                                            <MapPin className="h-3 w-3" />
-                                            {client.address}
-                                          </div>
-                                        </div>
-                                      )}
-                                    </div>
-                                  );
-                                })()}
-                              </DialogContent>
-                            </Dialog>
-                            <Dialog>
-                              <DialogTrigger asChild>
-                                <Button variant="outline" size="sm">
-                                  <Edit className="h-4 w-4" />
-                                </Button>
-                              </DialogTrigger>
-                              <DialogContent className="max-w-2xl">
-                                <DialogHeader>
-                                  <DialogTitle>Edit Client</DialogTitle>
-                                </DialogHeader>
-                                <form onSubmit={(e) => handleEditClient(client.id, e)} className="space-y-4">
-                                  <div className="grid grid-cols-2 gap-4">
-                                    <div className="space-y-2">
-                                      <Label htmlFor="edit-name">Client Name</Label>
-                                      <Input id="edit-name" name="name" defaultValue={client.name} required />
-                                    </div>
-                                    <div className="space-y-2">
-                                      <Label htmlFor="edit-company">Company</Label>
-                                      <Input id="edit-company" name="company" defaultValue={client.company} required />
-                                    </div>
-                                  </div>
-                                  <div className="grid grid-cols-2 gap-4">
-                                    <div className="space-y-2">
-                                      <Label htmlFor="edit-email">Email</Label>
-                                      <Input id="edit-email" name="email" type="email" defaultValue={client.email} required />
-                                    </div>
-                                    <div className="space-y-2">
-                                      <Label htmlFor="edit-phone">Phone</Label>
-                                      <Input id="edit-phone" name="phone" defaultValue={client.phone} required />
-                                    </div>
-                                  </div>
-                                  <div className="grid grid-cols-2 gap-4">
-                                    <div className="space-y-2">
-                                      <Label htmlFor="edit-contactPerson">Contact Person</Label>
-                                      <Input id="edit-contactPerson" name="contactPerson" defaultValue={client.contactPerson} />
-                                    </div>
-                                    <div className="space-y-2">
-                                      <Label htmlFor="edit-industry">Industry</Label>
-                                      <Select name="industry" defaultValue={client.industry}>
-                                        <SelectTrigger>
-                                          <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                          {industries.map(industry => (
-                                            <SelectItem key={industry} value={industry}>{industry}</SelectItem>
-                                          ))}
-                                        </SelectContent>
-                                      </Select>
-                                    </div>
-                                  </div>
-                                  <div className="grid grid-cols-2 gap-4">
-                                    <div className="space-y-2">
-                                      <Label htmlFor="edit-city">City</Label>
-                                      <Select name="city" defaultValue={client.city}>
-                                        <SelectTrigger>
-                                          <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                          {indianCities.map(city => (
-                                            <SelectItem key={city} value={city}>{city}</SelectItem>
-                                          ))}
-                                        </SelectContent>
-                                      </Select>
-                                    </div>
-                                    <div className="space-y-2">
-                                      <Label htmlFor="edit-value">Expected Value</Label>
-                                      <Input id="edit-value" name="value" defaultValue={client.value} required />
-                                    </div>
-                                  </div>
-                                  <div className="space-y-2">
-                                    <Label htmlFor="edit-address">Address</Label>
-                                    <Textarea id="edit-address" name="address" defaultValue={client.address} />
-                                  </div>
-                                  <Button type="submit" className="w-full">Update Client</Button>
-                                </form>
-                              </DialogContent>
-                            </Dialog>
-                            <Button 
-                              variant="outline" 
-                              size="sm" 
-                              onClick={() => handleDeleteClient(client.id)}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
+                {loading.clients ? (
+                  <div className="flex justify-center py-8">
+                    <Loader2 className="h-8 w-8 animate-spin" />
+                  </div>
+                ) : clients.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    No clients found. Add your first client!
+                  </div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Name</TableHead>
+                        <TableHead>Company</TableHead>
+                        <TableHead>Contact</TableHead>
+                        <TableHead>Industry</TableHead>
+                        <TableHead>Value</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Actions</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {clients.map((client) => (
+                        <TableRow key={client._id}>
+                          <TableCell className="font-medium">{client.name}</TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-1">
+                              <Building className="h-3 w-3" />
+                              {client.company}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex flex-col gap-1">
+                              <div className="flex items-center gap-1 text-sm">
+                                <Mail className="h-3 w-3" />
+                                {client.email}
+                              </div>
+                              <div className="flex items-center gap-1 text-sm">
+                                <Phone className="h-3 w-3" />
+                                {client.phone}
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell>{client.industry}</TableCell>
+                          <TableCell className="font-semibold">{client.value}</TableCell>
+                          <TableCell>
+                            <Badge variant={getStatusColor(client.status)}>
+                              {client.status}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex gap-2">
+                              <Dialog>
+                                <DialogTrigger asChild>
+                                  <Button 
+                                    variant="outline" 
+                                    size="sm" 
+                                    onClick={() => setViewClientDialog(client._id)}
+                                  >
+                                    <Eye className="h-4 w-4" />
+                                  </Button>
+                                </DialogTrigger>
+                                <DialogContent className="max-w-2xl">
+                                  <DialogHeader>
+                                    <DialogTitle>Client Details</DialogTitle>
+                                  </DialogHeader>
+                                  {viewClientDialog && getClientById(viewClientDialog) && (() => {
+                                    const client = getClientById(viewClientDialog)!;
+                                    return (
+                                      <div className="space-y-4">
+                                        <div className="grid grid-cols-2 gap-4">
+                                          <div><strong>Name:</strong> {client.name}</div>
+                                          <div><strong>Company:</strong> {client.company}</div>
+                                          <div><strong>Email:</strong> {client.email}</div>
+                                          <div><strong>Phone:</strong> {client.phone}</div>
+                                          <div><strong>Industry:</strong> {client.industry}</div>
+                                          <div><strong>City:</strong> {client.city}</div>
+                                          <div><strong>Value:</strong> {client.value}</div>
+                                          <div><strong>Status:</strong> {client.status}</div>
+                                          <div><strong>Contact Person:</strong> {client.contactPerson || "N/A"}</div>
+                                          <div><strong>Created:</strong> {formatDate(client.createdAt)}</div>
+                                          <div><strong>Updated:</strong> {formatDate(client.updatedAt)}</div>
+                                        </div>
+                                        {client.address && (
+                                          <div>
+                                            <strong>Address:</strong>
+                                            <div className="flex items-center gap-1 mt-1">
+                                              <MapPin className="h-3 w-3" />
+                                              {client.address}
+                                            </div>
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })()}
+                                </DialogContent>
+                              </Dialog>
+                              
+                              <Dialog open={!!editingClient} onOpenChange={(open) => !open && setEditingClient(null)}>
+                                <DialogTrigger asChild>
+                                  <Button 
+                                    variant="outline" 
+                                    size="sm"
+                                    onClick={() => setEditingClient(client)}
+                                  >
+                                    <Edit className="h-4 w-4" />
+                                  </Button>
+                                </DialogTrigger>
+                                {editingClient && editingClient._id === client._id && (
+                                  <DialogContent className="max-w-2xl">
+                                    <DialogHeader>
+                                      <DialogTitle>Edit Client</DialogTitle>
+                                    </DialogHeader>
+                                    <form onSubmit={handleEditClient} className="space-y-4">
+                                      <div className="grid grid-cols-2 gap-4">
+                                        <div className="space-y-2">
+                                          <Label htmlFor="edit-name">Client Name</Label>
+                                          <Input 
+                                            id="edit-name" 
+                                            name="name" 
+                                            defaultValue={editingClient.name} 
+                                            required 
+                                          />
+                                        </div>
+                                        <div className="space-y-2">
+                                          <Label htmlFor="edit-company">Company</Label>
+                                          <Input 
+                                            id="edit-company" 
+                                            name="company" 
+                                            defaultValue={editingClient.company} 
+                                            required 
+                                          />
+                                        </div>
+                                      </div>
+                                      <div className="grid grid-cols-2 gap-4">
+                                        <div className="space-y-2">
+                                          <Label htmlFor="edit-email">Email</Label>
+                                          <Input 
+                                            id="edit-email" 
+                                            name="email" 
+                                            type="email" 
+                                            defaultValue={editingClient.email} 
+                                            required 
+                                          />
+                                        </div>
+                                        <div className="space-y-2">
+                                          <Label htmlFor="edit-phone">Phone</Label>
+                                          <Input 
+                                            id="edit-phone" 
+                                            name="phone" 
+                                            defaultValue={editingClient.phone} 
+                                            required 
+                                          />
+                                        </div>
+                                      </div>
+                                      <div className="grid grid-cols-2 gap-4">
+                                        <div className="space-y-2">
+                                          <Label htmlFor="edit-contactPerson">Contact Person</Label>
+                                          <Input 
+                                            id="edit-contactPerson" 
+                                            name="contactPerson" 
+                                            defaultValue={editingClient.contactPerson || ""} 
+                                          />
+                                        </div>
+                                        <div className="space-y-2">
+                                          <Label htmlFor="edit-industry">Industry</Label>
+                                          <Select name="industry" defaultValue={editingClient.industry}>
+                                            <SelectTrigger>
+                                              <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                              {industries.map(industry => (
+                                                <SelectItem key={industry} value={industry}>{industry}</SelectItem>
+                                              ))}
+                                            </SelectContent>
+                                          </Select>
+                                        </div>
+                                      </div>
+                                      <div className="grid grid-cols-2 gap-4">
+                                        <div className="space-y-2">
+                                          <Label htmlFor="edit-city">City</Label>
+                                          <Select name="city" defaultValue={editingClient.city}>
+                                            <SelectTrigger>
+                                              <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                              {indianCities.map(city => (
+                                                <SelectItem key={city} value={city}>{city}</SelectItem>
+                                              ))}
+                                            </SelectContent>
+                                          </Select>
+                                        </div>
+                                        <div className="space-y-2">
+                                          <Label htmlFor="edit-value">Expected Value</Label>
+                                          <Input 
+                                            id="edit-value" 
+                                            name="value" 
+                                            defaultValue={editingClient.value} 
+                                            required 
+                                          />
+                                        </div>
+                                      </div>
+                                      <div className="space-y-2">
+                                        <Label htmlFor="edit-address">Address</Label>
+                                        <Textarea 
+                                          id="edit-address" 
+                                          name="address" 
+                                          defaultValue={editingClient.address || ""} 
+                                        />
+                                      </div>
+                                      <Button type="submit" className="w-full">Update Client</Button>
+                                    </form>
+                                  </DialogContent>
+                                )}
+                              </Dialog>
+                              
+                              <Button 
+                                variant="outline" 
+                                size="sm" 
+                                onClick={() => handleDeleteClient(client._id)}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
 
+          {/* Leads Tab */}
           <TabsContent value="leads">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0">
@@ -739,12 +1047,9 @@ const CRM = () => {
                                 <SelectValue placeholder="Select source" />
                               </SelectTrigger>
                               <SelectContent>
-                                <SelectItem value="Website">Website</SelectItem>
-                                <SelectItem value="Referral">Referral</SelectItem>
-                                <SelectItem value="Cold Call">Cold Call</SelectItem>
-                                <SelectItem value="Social Media">Social Media</SelectItem>
-                                <SelectItem value="Email Campaign">Email Campaign</SelectItem>
-                                <SelectItem value="Trade Show">Trade Show</SelectItem>
+                                {leadSources.map(source => (
+                                  <SelectItem key={source} value={source}>{source}</SelectItem>
+                                ))}
                               </SelectContent>
                             </Select>
                           </div>
@@ -774,189 +1079,253 @@ const CRM = () => {
                 </div>
               </CardHeader>
               <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Lead Name</TableHead>
-                      <TableHead>Company</TableHead>
-                      <TableHead>Contact</TableHead>
-                      <TableHead>Source</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Value</TableHead>
-                      <TableHead>Follow-up</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredLeads.map((lead) => (
-                      <TableRow key={lead.id}>
-                        <TableCell className="font-medium">{lead.name}</TableCell>
-                        <TableCell>{lead.company}</TableCell>
-                        <TableCell>
-                          <div className="flex flex-col gap-1">
-                            <div className="text-sm">{lead.email}</div>
-                            <div className="text-sm">{lead.phone}</div>
-                          </div>
-                        </TableCell>
-                        <TableCell>{lead.source}</TableCell>
-                        <TableCell>
-                          <Select 
-                            value={lead.status} 
-                            onValueChange={(value) => handleLeadStatusChange(lead.id, value as Lead['status'])}
-                          >
-                            <SelectTrigger className="w-36">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="new">New</SelectItem>
-                              <SelectItem value="contacted">Contacted</SelectItem>
-                              <SelectItem value="qualified">Qualified</SelectItem>
-                              <SelectItem value="proposal">Proposal Sent</SelectItem>
-                              <SelectItem value="negotiation">Negotiation</SelectItem>
-                              <SelectItem value="closed-won">Won</SelectItem>
-                              <SelectItem value="closed-lost">Lost</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </TableCell>
-                        <TableCell className="font-semibold">{lead.value}</TableCell>
-                        <TableCell>
-                          {lead.followUpDate && (
-                            <div className="flex items-center gap-1">
-                              <Calendar className="h-3 w-3" />
-                              {lead.followUpDate}
-                            </div>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex gap-2">
-                            <Dialog>
-                              <DialogTrigger asChild>
-                                <Button variant="outline" size="sm" onClick={() => setViewLeadDialog(lead.id)}>
-                                  <Eye className="h-4 w-4" />
-                                </Button>
-                              </DialogTrigger>
-                              <DialogContent>
-                                <DialogHeader>
-                                  <DialogTitle>Lead Details</DialogTitle>
-                                </DialogHeader>
-                                {viewLeadDialog && getLeadById(viewLeadDialog) && (() => {
-                                  const lead = getLeadById(viewLeadDialog)!;
-                                  return (
-                                    <div className="space-y-4">
-                                      <div className="grid grid-cols-2 gap-4">
-                                        <div><strong>Name:</strong> {lead.name}</div>
-                                        <div><strong>Company:</strong> {lead.company}</div>
-                                        <div><strong>Email:</strong> {lead.email}</div>
-                                        <div><strong>Phone:</strong> {lead.phone}</div>
-                                        <div><strong>Source:</strong> {lead.source}</div>
-                                        <div><strong>Status:</strong> {getStatusText(lead.status)}</div>
-                                        <div><strong>Value:</strong> {lead.value}</div>
-                                        <div><strong>Assigned To:</strong> {lead.assignedTo}</div>
-                                      </div>
-                                      {lead.followUpDate && (
-                                        <div>
-                                          <strong>Follow-up Date:</strong> {lead.followUpDate}
-                                        </div>
-                                      )}
-                                      {lead.notes && (
-                                        <div>
-                                          <strong>Notes:</strong>
-                                          <div className="mt-1 p-2 border rounded">{lead.notes}</div>
-                                        </div>
-                                      )}
-                                    </div>
-                                  );
-                                })()}
-                              </DialogContent>
-                            </Dialog>
-                            <Dialog>
-                              <DialogTrigger asChild>
-                                <Button variant="outline" size="sm">
-                                  <Edit className="h-4 w-4" />
-                                </Button>
-                              </DialogTrigger>
-                              <DialogContent className="max-w-2xl">
-                                <DialogHeader>
-                                  <DialogTitle>Edit Lead</DialogTitle>
-                                </DialogHeader>
-                                <form onSubmit={(e) => handleEditLead(lead.id, e)} className="space-y-4">
-                                  <div className="grid grid-cols-2 gap-4">
-                                    <div className="space-y-2">
-                                      <Label htmlFor="edit-lead-name">Lead Name</Label>
-                                      <Input id="edit-lead-name" name="name" defaultValue={lead.name} required />
-                                    </div>
-                                    <div className="space-y-2">
-                                      <Label htmlFor="edit-lead-company">Company</Label>
-                                      <Input id="edit-lead-company" name="company" defaultValue={lead.company} required />
-                                    </div>
-                                  </div>
-                                  <div className="grid grid-cols-2 gap-4">
-                                    <div className="space-y-2">
-                                      <Label htmlFor="edit-lead-email">Email</Label>
-                                      <Input id="edit-lead-email" name="email" type="email" defaultValue={lead.email} required />
-                                    </div>
-                                    <div className="space-y-2">
-                                      <Label htmlFor="edit-lead-phone">Phone</Label>
-                                      <Input id="edit-lead-phone" name="phone" defaultValue={lead.phone} required />
-                                    </div>
-                                  </div>
-                                  <div className="grid grid-cols-2 gap-4">
-                                    <div className="space-y-2">
-                                      <Label htmlFor="edit-source">Source</Label>
-                                      <Select name="source" defaultValue={lead.source}>
-                                        <SelectTrigger>
-                                          <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                          <SelectItem value="Website">Website</SelectItem>
-                                          <SelectItem value="Referral">Referral</SelectItem>
-                                          <SelectItem value="Cold Call">Cold Call</SelectItem>
-                                          <SelectItem value="Social Media">Social Media</SelectItem>
-                                          <SelectItem value="Email Campaign">Email Campaign</SelectItem>
-                                          <SelectItem value="Trade Show">Trade Show</SelectItem>
-                                        </SelectContent>
-                                      </Select>
-                                    </div>
-                                    <div className="space-y-2">
-                                      <Label htmlFor="edit-lead-value">Expected Value</Label>
-                                      <Input id="edit-lead-value" name="value" defaultValue={lead.value} required />
-                                    </div>
-                                  </div>
-                                  <div className="grid grid-cols-2 gap-4">
-                                    <div className="space-y-2">
-                                      <Label htmlFor="edit-assignedTo">Assign To</Label>
-                                      <Input id="edit-assignedTo" name="assignedTo" defaultValue={lead.assignedTo} required />
-                                    </div>
-                                    <div className="space-y-2">
-                                      <Label htmlFor="edit-followUpDate">Follow-up Date</Label>
-                                      <Input id="edit-followUpDate" name="followUpDate" type="date" defaultValue={lead.followUpDate} />
-                                    </div>
-                                  </div>
-                                  <div className="space-y-2">
-                                    <Label htmlFor="edit-lead-notes">Notes</Label>
-                                    <Textarea id="edit-lead-notes" name="notes" defaultValue={lead.notes} />
-                                  </div>
-                                  <Button type="submit" className="w-full">Update Lead</Button>
-                                </form>
-                              </DialogContent>
-                            </Dialog>
-                            <Button 
-                              variant="outline" 
-                              size="sm" 
-                              onClick={() => handleDeleteLead(lead.id)}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
+                {loading.leads ? (
+                  <div className="flex justify-center py-8">
+                    <Loader2 className="h-8 w-8 animate-spin" />
+                  </div>
+                ) : leads.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    No leads found. Add your first lead!
+                  </div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Lead Name</TableHead>
+                        <TableHead>Company</TableHead>
+                        <TableHead>Contact</TableHead>
+                        <TableHead>Source</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Value</TableHead>
+                        <TableHead>Follow-up</TableHead>
+                        <TableHead>Actions</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {leads.map((lead) => (
+                        <TableRow key={lead._id}>
+                          <TableCell className="font-medium">{lead.name}</TableCell>
+                          <TableCell>{lead.company}</TableCell>
+                          <TableCell>
+                            <div className="flex flex-col gap-1">
+                              <div className="text-sm">{lead.email}</div>
+                              <div className="text-sm">{lead.phone}</div>
+                            </div>
+                          </TableCell>
+                          <TableCell>{lead.source}</TableCell>
+                          <TableCell>
+                            <Select 
+                              value={lead.status} 
+                              onValueChange={(value) => handleLeadStatusChange(lead._id, value as Lead['status'])}
+                            >
+                              <SelectTrigger className="w-36">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="new">New</SelectItem>
+                                <SelectItem value="contacted">Contacted</SelectItem>
+                                <SelectItem value="qualified">Qualified</SelectItem>
+                                <SelectItem value="proposal">Proposal Sent</SelectItem>
+                                <SelectItem value="negotiation">Negotiation</SelectItem>
+                                <SelectItem value="closed-won">Won</SelectItem>
+                                <SelectItem value="closed-lost">Lost</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </TableCell>
+                          <TableCell className="font-semibold">{lead.value}</TableCell>
+                          <TableCell>
+                            {lead.followUpDate ? (
+                              <div className="flex items-center gap-1">
+                                <Calendar className="h-3 w-3" />
+                                {formatDate(lead.followUpDate)}
+                              </div>
+                            ) : (
+                              <span className="text-muted-foreground">No follow-up</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex gap-2">
+                              <Dialog>
+                                <DialogTrigger asChild>
+                                  <Button 
+                                    variant="outline" 
+                                    size="sm" 
+                                    onClick={() => setViewLeadDialog(lead._id)}
+                                  >
+                                    <Eye className="h-4 w-4" />
+                                  </Button>
+                                </DialogTrigger>
+                                <DialogContent className="max-w-2xl">
+                                  <DialogHeader>
+                                    <DialogTitle>Lead Details</DialogTitle>
+                                  </DialogHeader>
+                                  {viewLeadDialog && getLeadById(viewLeadDialog) && (() => {
+                                    const lead = getLeadById(viewLeadDialog)!;
+                                    return (
+                                      <div className="space-y-4">
+                                        <div className="grid grid-cols-2 gap-4">
+                                          <div><strong>Name:</strong> {lead.name}</div>
+                                          <div><strong>Company:</strong> {lead.company}</div>
+                                          <div><strong>Email:</strong> {lead.email}</div>
+                                          <div><strong>Phone:</strong> {lead.phone}</div>
+                                          <div><strong>Source:</strong> {lead.source}</div>
+                                          <div><strong>Status:</strong> {getStatusText(lead.status)}</div>
+                                          <div><strong>Value:</strong> {lead.value}</div>
+                                          <div><strong>Assigned To:</strong> {lead.assignedTo}</div>
+                                          <div><strong>Created:</strong> {formatDate(lead.createdAt)}</div>
+                                          <div><strong>Updated:</strong> {formatDate(lead.updatedAt)}</div>
+                                        </div>
+                                        {lead.followUpDate && (
+                                          <div>
+                                            <strong>Follow-up Date:</strong> {formatDate(lead.followUpDate)}
+                                          </div>
+                                        )}
+                                        {lead.notes && (
+                                          <div>
+                                            <strong>Notes:</strong>
+                                            <div className="mt-1 p-2 border rounded">{lead.notes}</div>
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })()}
+                                </DialogContent>
+                              </Dialog>
+                              
+                              <Dialog open={!!editingLead} onOpenChange={(open) => !open && setEditingLead(null)}>
+                                <DialogTrigger asChild>
+                                  <Button 
+                                    variant="outline" 
+                                    size="sm"
+                                    onClick={() => setEditingLead(lead)}
+                                  >
+                                    <Edit className="h-4 w-4" />
+                                  </Button>
+                                </DialogTrigger>
+                                {editingLead && editingLead._id === lead._id && (
+                                  <DialogContent className="max-w-2xl">
+                                    <DialogHeader>
+                                      <DialogTitle>Edit Lead</DialogTitle>
+                                    </DialogHeader>
+                                    <form onSubmit={handleEditLead} className="space-y-4">
+                                      <div className="grid grid-cols-2 gap-4">
+                                        <div className="space-y-2">
+                                          <Label htmlFor="edit-lead-name">Lead Name</Label>
+                                          <Input 
+                                            id="edit-lead-name" 
+                                            name="name" 
+                                            defaultValue={editingLead.name} 
+                                            required 
+                                          />
+                                        </div>
+                                        <div className="space-y-2">
+                                          <Label htmlFor="edit-lead-company">Company</Label>
+                                          <Input 
+                                            id="edit-lead-company" 
+                                            name="company" 
+                                            defaultValue={editingLead.company} 
+                                            required 
+                                          />
+                                        </div>
+                                      </div>
+                                      <div className="grid grid-cols-2 gap-4">
+                                        <div className="space-y-2">
+                                          <Label htmlFor="edit-lead-email">Email</Label>
+                                          <Input 
+                                            id="edit-lead-email" 
+                                            name="email" 
+                                            type="email" 
+                                            defaultValue={editingLead.email} 
+                                            required 
+                                          />
+                                        </div>
+                                        <div className="space-y-2">
+                                          <Label htmlFor="edit-lead-phone">Phone</Label>
+                                          <Input 
+                                            id="edit-lead-phone" 
+                                            name="phone" 
+                                            defaultValue={editingLead.phone} 
+                                            required 
+                                          />
+                                        </div>
+                                      </div>
+                                      <div className="grid grid-cols-2 gap-4">
+                                        <div className="space-y-2">
+                                          <Label htmlFor="edit-source">Source</Label>
+                                          <Select name="source" defaultValue={editingLead.source}>
+                                            <SelectTrigger>
+                                              <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                              {leadSources.map(source => (
+                                                <SelectItem key={source} value={source}>{source}</SelectItem>
+                                              ))}
+                                            </SelectContent>
+                                          </Select>
+                                        </div>
+                                        <div className="space-y-2">
+                                          <Label htmlFor="edit-lead-value">Expected Value</Label>
+                                          <Input 
+                                            id="edit-lead-value" 
+                                            name="value" 
+                                            defaultValue={editingLead.value} 
+                                            required 
+                                          />
+                                        </div>
+                                      </div>
+                                      <div className="grid grid-cols-2 gap-4">
+                                        <div className="space-y-2">
+                                          <Label htmlFor="edit-assignedTo">Assign To</Label>
+                                          <Input 
+                                            id="edit-assignedTo" 
+                                            name="assignedTo" 
+                                            defaultValue={editingLead.assignedTo} 
+                                            required 
+                                          />
+                                        </div>
+                                        <div className="space-y-2">
+                                          <Label htmlFor="edit-followUpDate">Follow-up Date</Label>
+                                          <Input 
+                                            id="edit-followUpDate" 
+                                            name="followUpDate" 
+                                            type="date" 
+                                            defaultValue={editingLead.followUpDate ? editingLead.followUpDate.split('T')[0] : ''} 
+                                          />
+                                        </div>
+                                      </div>
+                                      <div className="space-y-2">
+                                        <Label htmlFor="edit-lead-notes">Notes</Label>
+                                        <Textarea 
+                                          id="edit-lead-notes" 
+                                          name="notes" 
+                                          defaultValue={editingLead.notes || ""} 
+                                        />
+                                      </div>
+                                      <Button type="submit" className="w-full">Update Lead</Button>
+                                    </form>
+                                  </DialogContent>
+                                )}
+                              </Dialog>
+                              
+                              <Button 
+                                variant="outline" 
+                                size="sm" 
+                                onClick={() => handleDeleteLead(lead._id)}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
 
+          {/* Communications Tab */}
           <TabsContent value="communications">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0">
@@ -983,14 +1352,19 @@ const CRM = () => {
                         <div className="grid grid-cols-2 gap-4">
                           <div className="space-y-2">
                             <Label htmlFor="commClientName">Client Name *</Label>
-                            <Input id="commClientName" name="clientName" required />
+                            <Select name="clientName" required>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select client" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {clients.map(client => (
+                                  <SelectItem key={client._id} value={client.name}>
+                                    {client.name} - {client.company}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
                           </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="commClientId">Client ID</Label>
-                            <Input id="commClientId" name="clientId" />
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
                           <div className="space-y-2">
                             <Label htmlFor="commType">Type *</Label>
                             <Select name="type" required>
@@ -998,16 +1372,40 @@ const CRM = () => {
                                 <SelectValue placeholder="Select type" />
                               </SelectTrigger>
                               <SelectContent>
-                                <SelectItem value="call">Phone Call</SelectItem>
-                                <SelectItem value="email">Email</SelectItem>
-                                <SelectItem value="meeting">Meeting</SelectItem>
-                                <SelectItem value="demo">Product Demo</SelectItem>
+                                {communicationTypes.map(type => (
+                                  <SelectItem key={type} value={type}>
+                                    {type.charAt(0).toUpperCase() + type.slice(1)}
+                                  </SelectItem>
+                                ))}
                               </SelectContent>
                             </Select>
                           </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
                           <div className="space-y-2">
                             <Label htmlFor="commDate">Date *</Label>
-                            <Input id="commDate" name="date" type="date" required />
+                            <Input 
+                              id="commDate" 
+                              name="date" 
+                              type="date" 
+                              defaultValue={new Date().toISOString().split('T')[0]} 
+                              required 
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="commClientId">Client ID</Label>
+                            <Select name="clientId">
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select client ID" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {clients.map(client => (
+                                  <SelectItem key={client._id} value={client._id}>
+                                    {client._id.slice(-6)} - {client.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
                           </div>
                         </div>
                         <div className="space-y-2">
@@ -1015,7 +1413,12 @@ const CRM = () => {
                           <Textarea id="commNotes" name="notes" required />
                         </div>
                         <div className="flex items-center space-x-2">
-                          <input type="checkbox" id="followUpRequired" name="followUpRequired" className="rounded" />
+                          <input 
+                            type="checkbox" 
+                            id="followUpRequired" 
+                            name="followUpRequired" 
+                            className="rounded" 
+                          />
                           <Label htmlFor="followUpRequired">Follow-up Required</Label>
                         </div>
                         <div className="space-y-2">
@@ -1029,55 +1432,71 @@ const CRM = () => {
                 </div>
               </CardHeader>
               <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Client</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Notes</TableHead>
-                      <TableHead>Follow-up</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredCommunications.map((comm) => (
-                      <TableRow key={comm.id}>
-                        <TableCell className="font-medium">{comm.clientName}</TableCell>
-                        <TableCell>
-                          <Badge variant="outline">
-                            {comm.type === "call" && <Phone className="h-3 w-3 mr-1" />}
-                            {comm.type === "email" && <Mail className="h-3 w-3 mr-1" />}
-                            {comm.type === "meeting" && <Calendar className="h-3 w-3 mr-1" />}
-                            {comm.type === "demo" && <Eye className="h-3 w-3 mr-1" />}
-                            {comm.type}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>{comm.date}</TableCell>
-                        <TableCell className="max-w-xs truncate">{comm.notes}</TableCell>
-                        <TableCell>
-                          {comm.followUpRequired ? (
-                            <div className="flex items-center gap-1">
-                              <Calendar className="h-3 w-3" />
-                              {comm.followUpDate || "Pending"}
-                            </div>
-                          ) : (
-                            <Badge variant="outline">Not Required</Badge>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <Button 
-                            variant="outline" 
-                            size="sm" 
-                            onClick={() => handleDeleteCommunication(comm.id)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </TableCell>
+                {loading.communications ? (
+                  <div className="flex justify-center py-8">
+                    <Loader2 className="h-8 w-8 animate-spin" />
+                  </div>
+                ) : communications.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    No communications found. Log your first communication!
+                  </div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Client</TableHead>
+                        <TableHead>Type</TableHead>
+                        <TableHead>Date</TableHead>
+                        <TableHead>Notes</TableHead>
+                        <TableHead>Follow-up</TableHead>
+                        <TableHead>Actions</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {communications.map((comm) => (
+                        <TableRow key={comm._id}>
+                          <TableCell className="font-medium">
+                            {comm.clientName}
+                            {typeof comm.clientId === 'object' && comm.clientId && (
+                              <div className="text-sm text-muted-foreground">
+                                {comm.clientId.company}
+                              </div>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline">
+                              {getCommunicationTypeIcon(comm.type)}
+                              {comm.type.charAt(0).toUpperCase() + comm.type.slice(1)}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>{formatDateTime(comm.date)}</TableCell>
+                          <TableCell className="max-w-xs">
+                            <div className="truncate">{comm.notes}</div>
+                          </TableCell>
+                          <TableCell>
+                            {comm.followUpRequired ? (
+                              <div className="flex items-center gap-1">
+                                <Calendar className="h-3 w-3" />
+                                {comm.followUpDate ? formatDate(comm.followUpDate) : "Pending"}
+                              </div>
+                            ) : (
+                              <Badge variant="outline">Not Required</Badge>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <Button 
+                              variant="outline" 
+                              size="sm" 
+                              onClick={() => handleDeleteCommunication(comm._id)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
