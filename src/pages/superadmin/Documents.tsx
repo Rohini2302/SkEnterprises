@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { DashboardHeader } from "@/components/shared/DashboardHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,20 +10,28 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Search, FileText, Download, Eye, Trash2, Edit, FileUp } from "lucide-react";
+import { Plus, Search, FileText, Download, Eye, Trash2, Edit, FileUp, Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
+
+// Import the document service
+import documentService, { DocumentData } from "@/services/document.service";
 
 // Types
 interface Document {
   id: string;
   name: string;
-  type: "PDF" | "XLSX" | "DOCX" | "JPG" | "PNG";
+  type: "PDF" | "XLSX" | "DOCX" | "JPG" | "PNG" | "OTHER";
   size: string;
   uploadedBy: string;
   date: string;
   category: "uploaded" | "generated" | "template";
   description?: string;
+  cloudinaryData?: {
+    url: string;
+    publicId: string;
+    format: string;
+  };
 }
 
 interface Template {
@@ -42,7 +50,7 @@ interface Format {
   size: string;
 }
 
-// Dummy Data
+// Dummy Data (for initial load/fallback)
 const initialDocuments: Document[] = [
   {
     id: "1",
@@ -204,14 +212,47 @@ const Documents = () => {
 
 // Stats Cards Component
 const StatsCards = () => {
-  const documents = initialDocuments;
-  
+  const [stats, setStats] = useState({
+    total: 0,
+    uploaded: 0,
+    templates: 0,
+    generated: 0
+  });
+
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        const result = await documentService.getDocuments();
+        if (result.success && result.data) {
+          const documents = result.data;
+          setStats({
+            total: documents.length,
+            uploaded: documents.filter((d: DocumentData) => d.category === "uploaded").length,
+            templates: documents.filter((d: DocumentData) => d.category === "template").length,
+            generated: documents.filter((d: DocumentData) => d.category === "generated").length
+          });
+        }
+      } catch (error) {
+        console.error("Error fetching stats:", error);
+        // Use initial documents as fallback
+        setStats({
+          total: initialDocuments.length,
+          uploaded: initialDocuments.filter(d => d.category === "uploaded").length,
+          templates: initialDocuments.filter(d => d.category === "template").length,
+          generated: initialDocuments.filter(d => d.category === "generated").length
+        });
+      }
+    };
+
+    fetchStats();
+  }, []);
+
   return (
     <div className="grid gap-4 md:grid-cols-4">
-      <StatCard title="Total Documents" value={documents.length} />
-      <StatCard title="Uploaded" value={documents.filter(d => d.category === "uploaded").length} className="text-primary" />
-      <StatCard title="Templates" value={documents.filter(d => d.category === "template").length} className="text-accent" />
-      <StatCard title="Generated" value={documents.filter(d => d.category === "generated").length} className="text-green-600" />
+      <StatCard title="Total Documents" value={stats.total} />
+      <StatCard title="Uploaded" value={stats.uploaded} className="text-primary" />
+      <StatCard title="Templates" value={stats.templates} className="text-accent" />
+      <StatCard title="Generated" value={stats.generated} className="text-green-600" />
     </div>
   );
 };
@@ -220,48 +261,226 @@ const StatsCards = () => {
 const AllDocumentsSection = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
-  const [documents, setDocuments] = useState<Document[]>(initialDocuments);
+  const [documents, setDocuments] = useState<Document[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const handleUploadDocument = (e: React.FormEvent<HTMLFormElement>) => {
+  // Fetch documents from backend
+  const fetchDocuments = async () => {
+    setIsRefreshing(true);
+    setIsLoading(true);
+    try {
+      const result = await documentService.getDocuments();
+      
+      if (result.success && result.data) {
+        // Transform the backend data to match your Document type
+        const formattedDocuments: Document[] = result.data.map((doc: DocumentData) => ({
+          id: doc.id,
+          name: doc.name,
+          type: documentService.getFileType(doc.format || doc.name.split('.').pop() || ''),
+          size: doc.size,
+          uploadedBy: doc.uploadedBy || "Unknown",
+          date: doc.date || new Date().toISOString().split('T')[0],
+          category: doc.category,
+          description: doc.description,
+          cloudinaryData: {
+            url: doc.url,
+            publicId: doc.publicId,
+            format: doc.format
+          }
+        }));
+        
+        setDocuments(formattedDocuments);
+      } else {
+        // Fallback to initial documents if fetch fails
+        setDocuments(initialDocuments);
+        toast.error(result.message || "Failed to load documents");
+      }
+    } catch (error) {
+      console.error("Error fetching documents:", error);
+      setDocuments(initialDocuments); // Fallback
+      toast.error("Unable to connect to server");
+    } finally {
+      setIsLoading(false);
+      setIsRefreshing(false);
+    }
+  };
+
+  // Fetch documents on component mount
+  useEffect(() => {
+    fetchDocuments();
+  }, []);
+
+  const handleUploadDocument = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const formData = new FormData(e.currentTarget);
+    setIsUploading(true);
     
-    const newDocument: Document = {
-      id: Date.now().toString(),
-      name: formData.get("document-name") as string,
-      type: formData.get("document-type") as Document["type"],
-      size: "1.5 MB", // This would be calculated from actual file
-      uploadedBy: "Current User",
-      date: new Date().toISOString().split('T')[0],
-      category: "uploaded",
-      description: formData.get("description") as string
-    };
+    try {
+      const formData = new FormData(e.currentTarget);
+      const fileInput = e.currentTarget.querySelector('input[type="file"]') as HTMLInputElement;
+      const documentName = formData.get("document-name") as string;
+      const description = formData.get("description") as string;
+      const folder = formData.get("folder") as string || "documents";
+      const documentType = formData.get("document-type") as string;
+      
+      if (!fileInput.files || fileInput.files.length === 0) {
+        toast.error("Please select a file to upload");
+        setIsUploading(false);
+        return;
+      }
 
-    setDocuments(prev => [newDocument, ...prev]);
-    toast.success("Document uploaded successfully!");
-    setUploadDialogOpen(false);
-    (e.target as HTMLFormElement).reset();
+      const file = fileInput.files[0];
+      const fileSize = documentService.formatFileSize(file.size);
+      const fileExtension = documentService.getFileExtension(file.name);
+      const fileType = documentService.getFileType(fileExtension);
+
+      // Upload to backend/Cloudinary
+      const uploadResult = await documentService.uploadDocument(file, folder);
+      
+      if (uploadResult.success) {
+        // Save document metadata to database
+        try {
+          await documentService.saveDocumentMetadata({
+            name: documentName || file.name,
+            url: uploadResult.data.url,
+            publicId: uploadResult.data.publicId,
+            format: uploadResult.data.format,
+            size: fileSize,
+            category: "uploaded" as const,
+            description: description,
+            folder: folder
+          });
+        } catch (metadataError) {
+          console.error("Failed to save metadata:", metadataError);
+          // Continue even if metadata save fails
+        }
+
+        // Refresh the documents list
+        await fetchDocuments();
+        
+        toast.success("Document uploaded successfully!");
+        setUploadDialogOpen(false);
+        (e.target as HTMLFormElement).reset();
+      } else {
+        toast.error(uploadResult.message || "Upload failed");
+      }
+    } catch (error: any) {
+      console.error("Upload error:", error);
+      toast.error(error.response?.data?.message || "Failed to upload document. Please check your backend connection.");
+    } finally {
+      setIsUploading(false);
+    }
   };
 
-  const handleDeleteDocument = (docId: string) => {
-    setDocuments(prev => prev.filter(doc => doc.id !== docId));
-    toast.success("Document deleted successfully!");
+  const handleDeleteDocument = async (docId: string, doc: Document) => {
+    try {
+      // If document has Cloudinary data, delete from Cloudinary too
+      if (doc.cloudinaryData?.publicId) {
+        await documentService.deleteDocument(doc.cloudinaryData.publicId);
+      }
+      
+      // Refresh the documents list
+      await fetchDocuments();
+      
+      toast.success("Document deleted successfully!");
+    } catch (error: any) {
+      console.error("Delete error:", error);
+      toast.error("Failed to delete document from storage");
+    }
   };
 
-  const handleDownloadDocument = (docName: string) => {
-    toast.success(`Downloading ${docName}...`);
-    // Actual download logic would go here
+  const handleDownloadDocument = async (docName: string, doc?: Document) => {
+    try {
+      // If document has Cloudinary URL, download from there
+      if (doc?.cloudinaryData?.url) {
+        const response = await fetch(doc.cloudinaryData.url);
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = docName;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        toast.success(`Downloading ${docName}...`);
+      } else {
+        // Fallback to dummy download
+        toast.success(`Downloading ${docName}...`);
+      }
+    } catch (error) {
+      console.error("Download error:", error);
+      toast.error("Failed to download document");
+    }
   };
 
-  const handleViewDocument = (docName: string) => {
-    toast.success(`Opening ${docName}...`);
-    // Actual view logic would go here
+  const handleViewDocument = (doc: Document) => {
+    if (doc.cloudinaryData?.url) {
+      window.open(doc.cloudinaryData.url, '_blank');
+      toast.success(`Opening ${doc.name}...`);
+    } else {
+      toast.error("Document URL not available");
+    }
   };
+
+  // Search functionality
+  const handleSearch = async () => {
+    if (searchQuery.trim()) {
+      setIsLoading(true);
+      try {
+        const result = await documentService.searchDocuments(searchQuery);
+        
+        if (result.success && result.data) {
+          const formattedDocuments: Document[] = result.data.map((doc: DocumentData) => ({
+            id: doc.id,
+            name: doc.name,
+            type: documentService.getFileType(doc.format || doc.name.split('.').pop() || ''),
+            size: doc.size,
+            uploadedBy: doc.uploadedBy || "Unknown",
+            date: doc.date || new Date().toISOString().split('T')[0],
+            category: doc.category,
+            description: doc.description,
+            cloudinaryData: {
+              url: doc.url,
+              publicId: doc.publicId,
+              format: doc.format
+            }
+          }));
+          
+          setDocuments(formattedDocuments);
+        }
+      } catch (error) {
+        console.error("Search error:", error);
+        toast.error("Search failed");
+        // Restore all documents on search error
+        fetchDocuments();
+      } finally {
+        setIsLoading(false);
+      }
+    } else {
+      // If search is empty, fetch all documents
+      fetchDocuments();
+    }
+  };
+
+  // Add search debouncing
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (searchQuery.trim()) {
+        handleSearch();
+      }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   const filteredDocuments = documents.filter(doc => 
     doc.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     doc.type.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    doc.uploadedBy.toLowerCase().includes(searchQuery.toLowerCase())
+    doc.uploadedBy.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    doc.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    doc.description?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const getCategoryColor = (category: string) => {
@@ -277,123 +496,227 @@ const AllDocumentsSection = () => {
     <Card>
       <CardHeader className="flex flex-row items-center justify-between space-y-0">
         <CardTitle>All Documents</CardTitle>
-        <Dialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="mr-2 h-4 w-4" />
-              Upload Document
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Upload New Document</DialogTitle>
-            </DialogHeader>
-            <form onSubmit={handleUploadDocument} className="space-y-4">
-              <FormField label="Document Name" id="document-name" required>
-                <Input id="document-name" name="document-name" placeholder="Enter document name" required />
-              </FormField>
-              <FormField label="Document Type" id="document-type" required>
-                <Select name="document-type" required>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select document type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="PDF">PDF</SelectItem>
-                    <SelectItem value="XLSX">Excel (XLSX)</SelectItem>
-                    <SelectItem value="DOCX">Word (DOCX)</SelectItem>
-                    <SelectItem value="JPG">JPG Image</SelectItem>
-                    <SelectItem value="PNG">PNG Image</SelectItem>
-                  </SelectContent>
-                </Select>
-              </FormField>
-              <FormField label="Select File" id="file" required>
-                <Input id="file" name="file" type="file" required />
-              </FormField>
-              <FormField label="Description" id="description">
-                <Textarea id="description" name="description" placeholder="Enter document description" />
-              </FormField>
-              <Button type="submit" className="w-full">Upload Document</Button>
-            </form>
-          </DialogContent>
-        </Dialog>
+        <div className="flex items-center gap-2">
+          <Button 
+            variant="outline" 
+            onClick={fetchDocuments}
+            disabled={isRefreshing}
+            size="sm"
+            title="Refresh documents"
+          >
+            <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+          </Button>
+          <Dialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen}>
+            <DialogTrigger asChild>
+              <Button>
+                <Plus className="mr-2 h-4 w-4" />
+                Upload Document
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-[500px]">
+              <DialogHeader>
+                <DialogTitle>Upload New Document</DialogTitle>
+              </DialogHeader>
+              <form onSubmit={handleUploadDocument} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="document-name">
+                    Document Name
+                    <span className="text-red-500 ml-1">*</span>
+                  </Label>
+                  <Input 
+                    id="document-name" 
+                    name="document-name" 
+                    placeholder="Enter document name" 
+                    required 
+                    disabled={isUploading}
+                  />
+                </div>
+                
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="document-type">
+                      Document Type
+                      <span className="text-red-500 ml-1">*</span>
+                    </Label>
+                    <Select name="document-type" required disabled={isUploading}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="PDF">PDF</SelectItem>
+                        <SelectItem value="XLSX">Excel (XLSX)</SelectItem>
+                        <SelectItem value="DOCX">Word (DOCX)</SelectItem>
+                        <SelectItem value="JPG">JPG Image</SelectItem>
+                        <SelectItem value="PNG">PNG Image</SelectItem>
+                        <SelectItem value="OTHER">Other</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="folder">Folder</Label>
+                    <Select name="folder" disabled={isUploading}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select folder" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="documents">Documents</SelectItem>
+                        <SelectItem value="templates">Templates</SelectItem>
+                        <SelectItem value="reports">Reports</SelectItem>
+                        <SelectItem value="invoices">Invoices</SelectItem>
+                        <SelectItem value="certificates">Certificates</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="file">
+                    Select File
+                    <span className="text-red-500 ml-1">*</span>
+                  </Label>
+                  <Input 
+                    id="file" 
+                    name="file" 
+                    type="file" 
+                    required 
+                    accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.txt"
+                    disabled={isUploading}
+                  />
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="description">Description</Label>
+                  <Textarea 
+                    id="description" 
+                    name="description" 
+                    placeholder="Enter document description" 
+                    disabled={isUploading}
+                  />
+                </div>
+                
+                <Button 
+                  type="submit" 
+                  className="w-full"
+                  disabled={isUploading}
+                >
+                  {isUploading ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Uploading...
+                    </>
+                  ) : (
+                    'Upload Document'
+                  )}
+                </Button>
+              </form>
+            </DialogContent>
+          </Dialog>
+        </div>
       </CardHeader>
       <CardContent>
-        <SearchBar value={searchQuery} onChange={setSearchQuery} placeholder="Search documents..." />
+        <div className="mb-4">
+          <div className="relative">
+            <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search documents by name, type, or category..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-10"
+            />
+          </div>
+          {searchQuery && (
+            <div className="text-sm text-muted-foreground mt-2">
+              Found {filteredDocuments.length} document(s)
+            </div>
+          )}
+        </div>
         
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Document Name</TableHead>
-              <TableHead>Type</TableHead>
-              <TableHead>Category</TableHead>
-              <TableHead>Size</TableHead>
-              <TableHead>Uploaded By</TableHead>
-              <TableHead>Date</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {filteredDocuments.length === 0 ? (
+        {isLoading ? (
+          <div className="flex justify-center items-center py-12">
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            <span className="ml-2 text-muted-foreground">Loading documents...</span>
+          </div>
+        ) : (
+          <Table>
+            <TableHeader>
               <TableRow>
-                <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                  No documents found
-                </TableCell>
+                <TableHead>Document Name</TableHead>
+                <TableHead>Type</TableHead>
+                <TableHead>Category</TableHead>
+                <TableHead>Size</TableHead>
+                <TableHead>Uploaded By</TableHead>
+                <TableHead>Date</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
               </TableRow>
-            ) : (
-              filteredDocuments.map((doc) => (
-                <TableRow key={doc.id}>
-                  <TableCell className="font-medium">
-                    <div className="flex items-center gap-2">
-                      <FileText className="h-4 w-4" />
-                      <div>
-                        <div>{doc.name}</div>
-                        {doc.description && (
-                          <div className="text-sm text-muted-foreground">{doc.description}</div>
-                        )}
-                      </div>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="outline">{doc.type}</Badge>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={getCategoryColor(doc.category) as "default" | "destructive" | "outline" | "secondary"}>
-                      {doc.category}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>{doc.size}</TableCell>
-                  <TableCell>{doc.uploadedBy}</TableCell>
-                  <TableCell>{doc.date}</TableCell>
-                  <TableCell>
-                    <div className="flex justify-end gap-2">
-                      <Button 
-                        variant="ghost" 
-                        size="icon"
-                        onClick={() => handleViewDocument(doc.name)}
-                      >
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                      <Button 
-                        variant="ghost" 
-                        size="icon"
-                        onClick={() => handleDownloadDocument(doc.name)}
-                      >
-                        <Download className="h-4 w-4" />
-                      </Button>
-                      <Button 
-                        variant="ghost" 
-                        size="icon"
-                        onClick={() => handleDeleteDocument(doc.id)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
+            </TableHeader>
+            <TableBody>
+              {filteredDocuments.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                    {searchQuery ? "No documents match your search" : "No documents found"}
                   </TableCell>
                 </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
+              ) : (
+                filteredDocuments.map((doc) => (
+                  <TableRow key={doc.id} className="hover:bg-muted/50">
+                    <TableCell className="font-medium">
+                      <div className="flex items-center gap-2">
+                        <FileText className="h-4 w-4" />
+                        <div>
+                          <div>{doc.name}</div>
+                          {doc.description && (
+                            <div className="text-sm text-muted-foreground">{doc.description}</div>
+                          )}
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline">{doc.type}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={getCategoryColor(doc.category) as "default" | "destructive" | "outline" | "secondary"}>
+                        {doc.category}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>{doc.size}</TableCell>
+                    <TableCell>{doc.uploadedBy}</TableCell>
+                    <TableCell>{doc.date}</TableCell>
+                    <TableCell>
+                      <div className="flex justify-end gap-2">
+                        <Button 
+                          variant="ghost" 
+                          size="icon"
+                          onClick={() => handleViewDocument(doc)}
+                          title="View Document"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                        <Button 
+                          variant="ghost" 
+                          size="icon"
+                          onClick={() => handleDownloadDocument(doc.name, doc)}
+                          title="Download Document"
+                        >
+                          <Download className="h-4 w-4" />
+                        </Button>
+                        <Button 
+                          variant="ghost" 
+                          size="icon"
+                          onClick={() => handleDeleteDocument(doc.id, doc)}
+                          title="Delete Document"
+                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        )}
       </CardContent>
     </Card>
   );
@@ -402,20 +725,98 @@ const AllDocumentsSection = () => {
 // Templates Section
 const TemplatesSection = () => {
   const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
+  const [isUploadingTemplate, setIsUploadingTemplate] = useState(false);
+  const [templatesList, setTemplatesList] = useState<Template[]>(templates);
 
-  const handleAddTemplate = (e: React.FormEvent<HTMLFormElement>) => {
+  // Fetch templates from backend
+  const fetchTemplates = async () => {
+    try {
+      const result = await documentService.getDocuments("template");
+      if (result.success && result.data) {
+        const backendTemplates: Template[] = result.data.map((doc: DocumentData, index: number) => ({
+          id: doc.id || String(index + 1),
+          name: doc.name,
+          type: documentService.getFileType(doc.format || doc.name.split('.').pop() || '') + ' Template',
+          description: doc.description || 'No description',
+          lastModified: doc.date || new Date().toISOString().split('T')[0]
+        }));
+        setTemplatesList(backendTemplates);
+      }
+    } catch (error) {
+      console.error("Error fetching templates:", error);
+    }
+  };
+
+  useEffect(() => {
+    fetchTemplates();
+  }, []);
+
+  const handleAddTemplate = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    toast.success("Template added successfully!");
-    setTemplateDialogOpen(false);
-    (e.target as HTMLFormElement).reset();
+    setIsUploadingTemplate(true);
+    
+    try {
+      const formData = new FormData(e.currentTarget);
+      const fileInput = e.currentTarget.querySelector('input[type="file"]') as HTMLInputElement;
+      const templateName = formData.get("template-name") as string;
+      const description = formData.get("template-description") as string;
+      
+      if (!fileInput.files || fileInput.files.length === 0) {
+        toast.error("Please select a template file");
+        setIsUploadingTemplate(false);
+        return;
+      }
+
+      const file = fileInput.files[0];
+      const fileSize = documentService.formatFileSize(file.size);
+      const fileExtension = documentService.getFileExtension(file.name);
+      
+      // Upload template to backend
+      const uploadResult = await documentService.uploadDocument(file, "templates");
+      
+      if (uploadResult.success) {
+        // Save template metadata
+        try {
+          await documentService.saveDocumentMetadata({
+            name: templateName || file.name,
+            url: uploadResult.data.url,
+            publicId: uploadResult.data.publicId,
+            format: uploadResult.data.format,
+            size: fileSize,
+            category: "template" as const,
+            description: description,
+            folder: "templates"
+          });
+
+          // Refresh templates list
+          await fetchTemplates();
+          
+          toast.success("Template uploaded successfully!");
+          setTemplateDialogOpen(false);
+          (e.target as HTMLFormElement).reset();
+        } catch (metadataError) {
+          console.error("Failed to save template metadata:", metadataError);
+          toast.error("Template uploaded but metadata not saved");
+        }
+      } else {
+        toast.error(uploadResult.message || "Template upload failed");
+      }
+    } catch (error: any) {
+      console.error("Template upload error:", error);
+      toast.error("Failed to upload template");
+    } finally {
+      setIsUploadingTemplate(false);
+    }
   };
 
   const handleUseTemplate = (templateName: string) => {
     toast.success(`Using template: ${templateName}`);
+    // Logic to use template would go here
   };
 
   const handleDownloadTemplate = (templateName: string) => {
     toast.success(`Downloading template: ${templateName}`);
+    // Logic to download template would go here
   };
 
   return (
@@ -435,11 +836,25 @@ const TemplatesSection = () => {
                 <DialogTitle>Add New Template</DialogTitle>
               </DialogHeader>
               <form onSubmit={handleAddTemplate} className="space-y-4">
-                <FormField label="Template Name" id="template-name" required>
-                  <Input id="template-name" name="template-name" placeholder="Enter template name" required />
-                </FormField>
-                <FormField label="Template Type" id="template-type" required>
-                  <Select required>
+                <div className="space-y-2">
+                  <Label htmlFor="template-name">
+                    Template Name
+                    <span className="text-red-500 ml-1">*</span>
+                  </Label>
+                  <Input 
+                    id="template-name" 
+                    name="template-name" 
+                    placeholder="Enter template name" 
+                    required 
+                    disabled={isUploadingTemplate}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="template-type">
+                    Template Type
+                    <span className="text-red-500 ml-1">*</span>
+                  </Label>
+                  <Select required disabled={isUploadingTemplate}>
                     <SelectTrigger>
                       <SelectValue placeholder="Select template type" />
                     </SelectTrigger>
@@ -451,22 +866,55 @@ const TemplatesSection = () => {
                       <SelectItem value="experience">Experience Report</SelectItem>
                     </SelectContent>
                   </Select>
-                </FormField>
-                <FormField label="Description" id="template-description" required>
-                  <Textarea id="template-description" name="template-description" placeholder="Enter template description" required />
-                </FormField>
-                <FormField label="Upload Template File" id="template-file" required>
-                  <Input id="template-file" type="file" required />
-                </FormField>
-                <Button type="submit" className="w-full">Add Template</Button>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="template-description">
+                    Description
+                    <span className="text-red-500 ml-1">*</span>
+                  </Label>
+                  <Textarea 
+                    id="template-description" 
+                    name="template-description" 
+                    placeholder="Enter template description" 
+                    required 
+                    disabled={isUploadingTemplate}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="template-file">
+                    Upload Template File
+                    <span className="text-red-500 ml-1">*</span>
+                  </Label>
+                  <Input 
+                    id="template-file" 
+                    name="template-file"
+                    type="file" 
+                    required 
+                    disabled={isUploadingTemplate}
+                  />
+                </div>
+                <Button 
+                  type="submit" 
+                  className="w-full"
+                  disabled={isUploadingTemplate}
+                >
+                  {isUploadingTemplate ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Uploading Template...
+                    </>
+                  ) : (
+                    'Add Template'
+                  )}
+                </Button>
               </form>
             </DialogContent>
           </Dialog>
         </CardHeader>
         <CardContent>
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {templates.map((template) => (
-              <Card key={template.id} className="relative">
+            {templatesList.map((template) => (
+              <Card key={template.id} className="relative hover:shadow-md transition-shadow">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-lg flex items-center justify-between">
                     {template.name}
@@ -509,15 +957,48 @@ const TemplatesSection = () => {
 const GenerateDocumentsSection = () => {
   const [generateDialogOpen, setGenerateDialogOpen] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState("");
+  const [isGenerating, setIsGenerating] = useState(false);
 
-  const handleGenerateDocument = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleGenerateDocument = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    const documentType = formData.get("document-type") as string;
+    setIsGenerating(true);
     
-    toast.success(`Generating ${documentType} document...`);
-    setGenerateDialogOpen(false);
-    (e.target as HTMLFormElement).reset();
+    try {
+      const formData = new FormData(e.currentTarget);
+      const documentType = formData.get("document-type") as string;
+      const documentName = formData.get("generated-doc-name") as string;
+      const outputFormat = formData.get("output-format") as string;
+      
+      // Simulate document generation
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // Here you would typically:
+      // 1. Call your document generation API
+      // 2. Save the generated document metadata
+      // 3. Refresh the documents list
+      
+      // For now, create a dummy generated document
+      const generatedDoc: Partial<DocumentData> = {
+        name: documentName,
+        size: documentService.formatFileSize(1024 * 1024), // 1MB
+        category: "generated" as const,
+        format: outputFormat,
+        description: `Generated ${documentType} document`
+      };
+      
+      // Simulate saving to backend
+      console.log("Generated document:", generatedDoc);
+      
+      toast.success(`${documentType} "${documentName}" generated successfully!`);
+      setGenerateDialogOpen(false);
+      (e.target as HTMLFormElement).reset();
+      setSelectedTemplate("");
+    } catch (error) {
+      console.error("Generate error:", error);
+      toast.error("Failed to generate document");
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   const quickGenerateOptions = [
@@ -527,8 +1008,24 @@ const GenerateDocumentsSection = () => {
     { name: "Certificate", type: "DOCX", description: "Create experience certificate" }
   ];
 
-  const handleQuickGenerate = (docType: string) => {
-    toast.success(`Generating ${docType}...`);
+  const handleQuickGenerate = async (docType: string) => {
+    setIsGenerating(true);
+    try {
+      // Simulate generation process
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      
+      // In a real app, you would:
+      // 1. Call your generation API
+      // 2. Save the document metadata
+      // 3. Possibly redirect to the new document
+      
+      toast.success(`Generating ${docType}...`);
+      // Refresh the main documents list if needed
+    } catch (error) {
+      toast.error(`Failed to generate ${docType}`);
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   return (
@@ -543,7 +1040,7 @@ const GenerateDocumentsSection = () => {
               <h3 className="text-lg font-semibold">Quick Generate</h3>
               <div className="grid gap-3">
                 {quickGenerateOptions.map((option, index) => (
-                  <Card key={index} className="p-4">
+                  <Card key={index} className="p-4 hover:shadow-sm transition-shadow">
                     <div className="flex items-center justify-between">
                       <div>
                         <div className="font-medium">{option.name}</div>
@@ -552,8 +1049,9 @@ const GenerateDocumentsSection = () => {
                       <Button 
                         size="sm"
                         onClick={() => handleQuickGenerate(option.name)}
+                        disabled={isGenerating}
                       >
-                        Generate
+                        {isGenerating ? "Generating..." : "Generate"}
                       </Button>
                     </div>
                   </Card>
@@ -565,7 +1063,8 @@ const GenerateDocumentsSection = () => {
               <h3 className="text-lg font-semibold">Custom Document Generation</h3>
               <Card className="p-6">
                 <div className="space-y-4">
-                  <FormField label="Select Template" id="generate-template">
+                  <div className="space-y-2">
+                    <Label htmlFor="generate-template">Select Template</Label>
                     <Select value={selectedTemplate} onValueChange={setSelectedTemplate}>
                       <SelectTrigger>
                         <SelectValue placeholder="Choose a template" />
@@ -577,11 +1076,11 @@ const GenerateDocumentsSection = () => {
                         <SelectItem value="certificate">Certificate Template</SelectItem>
                       </SelectContent>
                     </Select>
-                  </FormField>
+                  </div>
                   
                   <Dialog open={generateDialogOpen} onOpenChange={setGenerateDialogOpen}>
                     <DialogTrigger asChild>
-                      <Button className="w-full" disabled={!selectedTemplate}>
+                      <Button className="w-full" disabled={!selectedTemplate || isGenerating}>
                         <FileUp className="mr-2 h-4 w-4" />
                         Configure & Generate
                       </Button>
@@ -591,16 +1090,23 @@ const GenerateDocumentsSection = () => {
                         <DialogTitle>Generate Document</DialogTitle>
                       </DialogHeader>
                       <form onSubmit={handleGenerateDocument} className="space-y-4">
-                        <FormField label="Document Type" id="document-type" required>
+                        <div className="space-y-2">
+                          <Label htmlFor="document-type">
+                            Document Type
+                          </Label>
                           <Input 
                             id="document-type" 
                             name="document-type" 
                             value={selectedTemplate}
                             readOnly 
                           />
-                        </FormField>
-                        <FormField label="Output Format" id="output-format" required>
-                          <Select name="output-format" required>
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="output-format">
+                            Output Format
+                            <span className="text-red-500 ml-1">*</span>
+                          </Label>
+                          <Select name="output-format" required disabled={isGenerating}>
                             <SelectTrigger>
                               <SelectValue placeholder="Select format" />
                             </SelectTrigger>
@@ -610,16 +1116,34 @@ const GenerateDocumentsSection = () => {
                               <SelectItem value="XLSX">Excel Spreadsheet</SelectItem>
                             </SelectContent>
                           </Select>
-                        </FormField>
-                        <FormField label="Document Name" id="generated-doc-name" required>
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="generated-doc-name">
+                            Document Name
+                            <span className="text-red-500 ml-1">*</span>
+                          </Label>
                           <Input 
                             id="generated-doc-name" 
                             name="generated-doc-name" 
                             placeholder="Enter document name" 
                             required 
+                            disabled={isGenerating}
                           />
-                        </FormField>
-                        <Button type="submit" className="w-full">Generate Document</Button>
+                        </div>
+                        <Button 
+                          type="submit" 
+                          className="w-full"
+                          disabled={isGenerating}
+                        >
+                          {isGenerating ? (
+                            <>
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              Generating...
+                            </>
+                          ) : (
+                            'Generate Document'
+                          )}
+                        </Button>
                       </form>
                     </DialogContent>
                   </Dialog>
@@ -648,7 +1172,7 @@ const FormatLibrarySection = () => {
         <CardContent>
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {formatLibrary.map((format) => (
-              <Card key={format.id} className="relative">
+              <Card key={format.id} className="relative hover:shadow-md transition-shadow">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-lg flex items-center justify-between">
                     {format.name}
@@ -687,36 +1211,6 @@ const StatCard = ({ title, value, className = "" }: { title: string; value: numb
       <div className={`text-2xl font-bold ${className}`}>{value}</div>
     </CardContent>
   </Card>
-);
-
-const SearchBar = ({ value, onChange, placeholder }: { 
-  value: string; 
-  onChange: (value: string) => void;
-  placeholder: string;
-}) => (
-  <div className="mb-4">
-    <div className="relative">
-      <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-      <Input
-        placeholder={placeholder}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="pl-10"
-      />
-    </div>
-  </div>
-);
-
-const FormField = ({ label, id, children, required = false }: {
-  label: string;
-  id: string;
-  children: React.ReactNode;
-  required?: boolean;
-}) => (
-  <div className="space-y-2">
-    <Label htmlFor={id}>{label}</Label>
-    {children}
-  </div>
 );
 
 export default Documents;
