@@ -6,9 +6,10 @@ export interface IService extends Document {
   assignedTeam: string;
   lastChecked: Date;
   description?: string;
-  category?: string;
-  uptime?: number;
-  responseTime?: number;
+  createdBy: string;
+  createdByRole: string;
+  updatedBy?: string;
+  updatedByRole?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -17,7 +18,7 @@ const ServiceSchema = new Schema<IService>({
   name: {
     type: String,
     required: true,
-    trim: true
+    unique: true
   },
   status: {
     type: String,
@@ -35,21 +36,22 @@ const ServiceSchema = new Schema<IService>({
   description: {
     type: String
   },
-  category: {
+  createdBy: {
     type: String,
-    enum: ['api', 'database', 'server', 'application', 'network', 'other'],
-    default: 'application'
+    required: true
   },
-  uptime: {
-    type: Number,
-    min: 0,
-    max: 100,
-    default: 99.9
+  createdByRole: {
+    type: String,
+    enum: ['superadmin', 'admin', 'manager', 'employee'],
+    required: true,
+    default: 'superadmin'
   },
-  responseTime: {
-    type: Number,
-    min: 0,
-    default: 100
+  updatedBy: {
+    type: String
+  },
+  updatedByRole: {
+    type: String,
+    enum: ['superadmin', 'admin', 'manager', 'employee']
   },
   createdAt: {
     type: Date,
@@ -62,10 +64,5 @@ const ServiceSchema = new Schema<IService>({
 }, {
   timestamps: true
 });
-
-// Index for better query performance
-ServiceSchema.index({ status: 1 });
-ServiceSchema.index({ category: 1 });
-ServiceSchema.index({ assignedTeam: 1 });
 
 export default mongoose.model<IService>('Service', ServiceSchema);
