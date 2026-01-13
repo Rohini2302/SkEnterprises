@@ -11,5 +11,5 @@ export type {
   Payment,
   LedgerEntry,
   PartyBalance,
-  SiteProfit
+  SiteProfit,
 } from "../Billing";

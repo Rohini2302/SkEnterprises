@@ -1,3 +1,4 @@
+
 import { Request, Response } from 'express';
 import Client from '../models/Client';
 
@@ -13,18 +14,20 @@ export const getAllClients = async (req: Request, res: Response) => {
         { name: { $regex: search, $options: 'i' } },
         { company: { $regex: search, $options: 'i' } },
         { email: { $regex: search, $options: 'i' } },
-        { phone: { $regex: search, $options: 'i' } }
+        { phone: { $regex: search, $options: 'i' } },
+        { industry: { $regex: search, $options: 'i' } },
+        { contactPerson: { $regex: search, $options: 'i' } },
+        { value: { $regex: search, $options: 'i' } }
       ];
     }
     
     if (status) {
       filter.status = status;
     } else {
-      filter.status = 'active'; // Default to active only
+      filter.status = 'active';
     }
     
     const clients = await Client.find(filter)
-      .select('name company email phone city state status')
       .sort('name');
     
     res.status(200).json({
@@ -82,15 +85,19 @@ export const createClient = async (req: Request, res: Response) => {
       gstNumber,
       contactPerson,
       contactPersonPhone,
+      value,
+      industry,
       notes,
       status = 'active'
     } = req.body;
 
+    console.log('Received client data:', req.body); // Debug log
+
     // Validate required fields
-    if (!name || !company || !email || !phone) {
+    if (!name || !company || !email || !phone || !value || !industry) {
       return res.status(400).json({ 
         success: false,
-        message: 'Name, company, email and phone are required fields' 
+        message: 'Name, company, email, phone, value, and industry are required fields' 
       });
     }
 
@@ -109,18 +116,22 @@ export const createClient = async (req: Request, res: Response) => {
       company,
       email,
       phone,
-      address,
-      city,
-      state,
-      pincode,
-      gstNumber,
-      contactPerson,
-      contactPersonPhone,
-      notes,
+      address: address || '',
+      city: city || 'Mumbai',
+      state: state || '',
+      pincode: pincode || '',
+      gstNumber: gstNumber || '',
+      contactPerson: contactPerson || '',
+      contactPersonPhone: contactPersonPhone || '',
+      value: value || '₹0',
+      industry: industry || 'IT Services',
+      notes: notes || '',
       status
     });
 
     await client.save();
+
+    console.log('Client created successfully:', client); // Debug log
 
     res.status(201).json({
       success: true,
@@ -150,6 +161,8 @@ export const updateClient = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const updateData = req.body;
+
+    console.log('Updating client with data:', updateData); // Debug log
 
     // Remove _id from update data if present
     delete updateData._id;
@@ -236,12 +249,13 @@ export const searchClients = async (req: Request, res: Response) => {
         { name: { $regex: query, $options: 'i' } },
         { company: { $regex: query, $options: 'i' } },
         { email: { $regex: query, $options: 'i' } },
-        { phone: { $regex: query, $options: 'i' } }
+        { phone: { $regex: query, $options: 'i' } },
+        { industry: { $regex: query, $options: 'i' } },
+        { value: { $regex: query, $options: 'i' } }
       ]
     };
     
     const clients = await Client.find(filter)
-      .select('name company email phone city state')
       .sort('name')
       .limit(20);
     
@@ -318,3 +332,4 @@ export const getClientStats = async (req: Request, res: Response) => {
     });
   }
 };
+

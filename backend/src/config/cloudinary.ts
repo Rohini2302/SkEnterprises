@@ -1,5 +1,7 @@
-import { v2 as cloudinary, ConfigOptions } from 'cloudinary';
+// src/config/cloudinary.ts
+import { v2 as cloudinary } from 'cloudinary';
 import dotenv from 'dotenv';
+import { CloudinaryConfig } from '../interfaces/cloudinary.interface';
 
 dotenv.config();
 
@@ -17,13 +19,28 @@ requiredEnvVars.forEach(varName => {
 });
 
 // Cloudinary configuration
-const cloudinaryConfig: ConfigOptions = {
+const cloudinaryConfig: CloudinaryConfig = {
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME as string,
   api_key: process.env.CLOUDINARY_API_KEY as string,
   api_secret: process.env.CLOUDINARY_API_SECRET as string,
   secure: true,
 };
 
+// Configure Cloudinary
 cloudinary.config(cloudinaryConfig);
 
-export default cloudinary;
+// Export configured Cloudinary instance
+export { cloudinary };
+export type { CloudinaryConfig };
+
+// Helper function to test Cloudinary connection
+export const testCloudinaryConnection = async (): Promise<boolean> => {
+  try {
+    const result = await cloudinary.api.ping();
+    console.log('Cloudinary connection successful:', result);
+    return true;
+  } catch (error) {
+    console.error('Cloudinary connection failed:', error);
+    return false;
+  }
+};

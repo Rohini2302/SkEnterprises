@@ -111,7 +111,154 @@ export const applyForLeave = async (req: Request, res: Response) => {
     });
   }
 };
+// Enhanced functions to add to your leaveController.ts
 
+// Get leave by ID
+export const getLeaveDetails = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const leave = await Leave.findById(id);
+    
+    if (!leave) {
+      return res.status(404).json({ message: 'Leave request not found' });
+    }
+    
+    res.status(200).json(leave);
+  } catch (error: any) {
+    res.status(500).json({ message: 'Error fetching leave details', error: error.message });
+  }
+};
+
+// Cancel leave request
+export const cancelLeaveRequest = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { cancellationReason } = req.body;
+    
+    const leave = await Leave.findById(id);
+    
+    if (!leave) {
+      return res.status(404).json({ message: 'Leave request not found' });
+    }
+    
+    if (leave.status !== 'pending') {
+      return res.status(400).json({ message: 'Only pending leave requests can be cancelled' });
+    }
+    
+    leave.status = 'cancelled';
+    leave.cancellationReason = cancellationReason;
+    await leave.save();
+    
+    res.status(200).json({
+      message: 'Leave request cancelled successfully',
+      leave
+    });
+  } catch (error: any) {
+    res.status(500).json({ message: 'Error cancelling leave request', error: error.message });
+  }
+};
+
+// Get all leaves for admin view
+export const getAllLeavesForAdmin = async (req: Request, res: Response) => {
+  try {
+    const { status, department, employeeName, page = 1, limit = 20 } = req.query;
+    
+    let filter: any = {};
+    
+    if (status && status !== 'all') {
+      filter.status = status;
+    }
+    
+    if (department && department !== 'all') {
+      filter.department = department;
+    }
+    
+    if (employeeName) {
+      filter.employeeName = { $regex: employeeName, $options: 'i' };
+    }
+    
+    const pageNum = parseInt(page as string);
+    const limitNum = parseInt(limit as string);
+    const skip = (pageNum - 1) * limitNum;
+    
+    const leaves = await Leave.find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limitNum);
+    
+    const total = await Leave.countDocuments(filter);
+    
+    res.status(200).json({
+      leaves,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        pages: Math.ceil(total / limitNum)
+      }
+    });
+  } catch (error: any) {
+    res.status(500).json({ message: 'Error fetching leaves for admin', error: error.message });
+  }
+};
+
+// Update leave status with remarks
+export const updateLeaveStatusWithRemarks = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { status, remarks, managerName } = req.body;
+
+    if (!['approved', 'rejected'].includes(status)) {
+      return res.status(400).json({ message: 'Invalid status' });
+    }
+
+    const updateData: any = { 
+      status,
+      updatedAt: new Date()
+    };
+    
+    if (remarks) {
+      updateData.remarks = remarks;
+    }
+    
+    if (managerName) {
+      updateData[status === 'approved' ? 'approvedBy' : 'rejectedBy'] = managerName;
+      updateData[status === 'approved' ? 'approvedAt' : 'rejectedAt'] = new Date();
+    }
+
+    const leave = await Leave.findByIdAndUpdate(id, updateData, { new: true });
+
+    if (!leave) {
+      return res.status(404).json({ message: 'Leave request not found' });
+    }
+
+    res.status(200).json({
+      message: `Leave request ${status}`,
+      leave
+    });
+  } catch (error: any) {
+    res.status(500).json({ message: 'Error updating leave status', error: error.message });
+  }
+};
+
+// Get pending leaves
+export const getPendingLeaves = async (req: Request, res: Response) => {
+  try {
+    const { department } = req.query;
+    
+    let filter: any = { status: 'pending' };
+    
+    if (department && department !== 'all') {
+      filter.department = department;
+    }
+    
+    const leaves = await Leave.find(filter).sort({ createdAt: -1 });
+    
+    res.status(200).json(leaves);
+  } catch (error: any) {
+    res.status(500).json({ message: 'Error fetching pending leaves', error: error.message });
+  }
+};
 // Update leave status
 export const updateLeaveStatus = async (req: Request, res: Response) => {
   try {

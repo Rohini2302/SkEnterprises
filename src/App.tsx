@@ -47,6 +47,11 @@ import AdminProfile from "./pages/admin/Profile";
 import AdminTeam from "./pages/admin/Team";
 import AdminTasks from "./pages/admin/Tasks";
 import AdminReports from "./pages/admin/AdminReports";
+import AdminCRM from "./pages/admin/AdminCRM";
+import AdminERP from "./pages/admin/AdminERP";
+import AdminBilling from "./pages/admin/AdminBilling";
+import AdminOperations  from "./pages/admin/AdminOperations";
+import AdminDocuments from "./pages/admin/AdminDocuments";
 import AdminLeave from "./pages/admin/Leave";
 import AdminNotifications from "./pages/admin/AdminNotifications";
 import AdminSettings from "./pages/admin/AdminSettings";
@@ -59,6 +64,7 @@ import ManagerReports from "./pages/manager/ManagerReports";
 import ManagerLeave from "./pages/manager/Leave";
 import ManagerNotifications from "./pages/manager/ManagerNotifications";
 import ManagerSettings from "./pages/manager/ManagerSettings";
+// import ManagerNotifications from "./pages/manager/ManagerNotifications";
 
 // Supervisor Pages
 import SupervisorProfile from "./pages/supervisor/Profile";
@@ -83,7 +89,8 @@ import WorkQuery from "./pages/supervisor/WorkQuery";
 import SuperAdminWorkIssues from "./pages/superadmin/SuperAdminWorkIssues";
 import AdminAttendanceView from "./pages/admin/AdminAttendanceView";
 import ManagerOperations from "./pages/manager/ManagerOperations";
-import AdminCRM from "./pages/admin/AdminCRM";
+import AdminHRMS from "./pages/admin/AdminHRMS";
+// import AdminCRM from "./pages/admin/AdminCRM";
 
 
 const queryClient = new QueryClient();
@@ -143,19 +150,18 @@ const App = () => (
               <Route path="team" element={<AdminTeam />} />
               <Route path="attendance" element={<AdminAttendanceView />} />
               <Route path="tasks" element={<AdminTasks />} />
-              <Route path="crm" element={<AdminCRM />} />
               <Route path="reports" element={<AdminReports />} />
               <Route path="leave" element={<AdminLeave />} />
               <Route path="notifications" element={<AdminNotifications />} />
               <Route path="settings" element={<AdminSettings />} />
-              <Route path="users" element={<div className="p-6"><h1 className="text-2xl font-bold">Users & Roles</h1></div>} />
-              <Route path="hrms" element={<div className="p-6"><h1 className="text-2xl font-bold">HRMS</h1></div>} />
-              <Route path="crm" element={<div className="p-6"><h1 className="text-2xl font-bold">CRM</h1></div>} />
-              <Route path="erp" element={<div className="p-6"><h1 className="text-2xl font-bold">ERP</h1></div>} />
-              <Route path="billing" element={<div className="p-6"><h1 className="text-2xl font-bold">Billing & Finance</h1></div>} />
-              <Route path="operations" element={<div className="p-6"><h1 className="text-2xl font-bold">Operations</h1></div>} />
-              <Route path="documents" element={<div className="p-6"><h1 className="text-2xl font-bold">Documents</h1></div>} />
+              <Route path="crm" element={<AdminCRM/>} />
+              <Route path="erp" element={<AdminERP/>} />
+              <Route path="billing" element={<AdminBilling/>} />
+             <Route path="operations" element={<AdminOperations />} />
+              <Route path="documents" element={<AdminDocuments/>} />
+              <Route path="hrms" element = {<AdminHRMS/>}/>
             </Route>
+
 
             {/* Manager Routes */}
             <Route
@@ -196,8 +202,7 @@ const App = () => (
               <Route path="attendance" element={<Attendance />} />
               <Route path="leave" element={<SupervisorLeave />} />
               <Route path="reports" element={<SupervisorReports />} />
-              <Route path="notifications" element={<Notifications />} />
-              <Route path="settings" element={<SupervisorSettings />} />
+               <Route path="settings" element={<SupervisorSettings />} />
             </Route>
 
             {/* Employee Routes */}

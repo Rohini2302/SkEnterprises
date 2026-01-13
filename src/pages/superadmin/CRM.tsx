@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from "react";
 import { DashboardHeader } from "@/components/shared/DashboardHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,211 +14,17 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Search, Plus, Edit, Trash2, Phone, Mail, Calendar, Eye, MapPin, Building, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
-
-// Base URL for your backend
-const API_BASE_URL = "http://localhost:5001/api";
-
-interface Client {
-  _id: string;
-  name: string;
-  company: string;
-  email: string;
-  phone: string;
-  address: string;
-  city: string;
-  status: "active" | "inactive";
-  value: string;
-  industry: string;
-  contactPerson: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-interface Lead {
-  _id: string;
-  name: string;
-  company: string;
-  email: string;
-  phone: string;
-  source: string;
-  status: "new" | "contacted" | "qualified" | "proposal" | "negotiation" | "closed-won" | "closed-lost";
-  value: string;
-  assignedTo: string;
-  followUpDate: string;
-  notes: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-interface Communication {
-  _id: string;
-  clientName: string;
-  clientId: {
-    _id: string;
-    name: string;
-    company: string;
-    email: string;
-  } | string;
-  type: "call" | "email" | "meeting" | "demo";
-  date: string;
-  notes: string;
-  followUpRequired: boolean;
-  followUpDate?: string;
-  createdAt: string;
-}
-const api = {
-  async getCRMStats() {
-    const timestamp = new Date().getTime();
-    const res = await fetch(`${API_BASE_URL}/crm/stats?t=${timestamp}`);
-    if (!res.ok) throw new Error('Failed to fetch CRM stats');
-    return res.json();
-  },
-
-  async getClients(search?: string) {
-    const timestamp = new Date().getTime();
-    const url = search 
-      ? `${API_BASE_URL}/crm/clients?search=${encodeURIComponent(search)}&t=${timestamp}` 
-      : `${API_BASE_URL}/crm/clients?t=${timestamp}`;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error('Failed to fetch clients');
-    return res.json();
-  },
-
-  async createClient(data: Omit<Client, '_id' | 'createdAt' | 'updatedAt'>) {
-    const res = await fetch(`${API_BASE_URL}/crm/clients`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
-    });
-    if (!res.ok) {
-      const error = await res.json();
-      throw new Error(error.message || 'Failed to create client');
-    }
-    return res.json();
-  },
-
-  async updateClient(id: string, data: Partial<Client>) {
-    const res = await fetch(`${API_BASE_URL}/crm/clients/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
-    });
-    if (!res.ok) {
-      const error = await res.json();
-      throw new Error(error.message || 'Failed to update client');
-    }
-    return res.json();
-  },
-
-  async deleteClient(id: string) {
-    const res = await fetch(`${API_BASE_URL}/crm/clients/${id}`, {
-      method: 'DELETE'
-    });
-    if (!res.ok) {
-      const error = await res.json();
-      throw new Error(error.message || 'Failed to delete client');
-    }
-    return res.json();
-  },
-
-  // Leads
-  async getLeads(search?: string) {
-    const url = search 
-      ? `${API_BASE_URL}/crm/leads?search=${encodeURIComponent(search)}` 
-      : `${API_BASE_URL}/crm/leads`;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error('Failed to fetch leads');
-    return res.json();
-  },
-
-  async createLead(data: Omit<Lead, '_id' | 'createdAt' | 'updatedAt'>) {
-    const res = await fetch(`${API_BASE_URL}/crm/leads`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
-    });
-    if (!res.ok) {
-      const error = await res.json();
-      throw new Error(error.message || 'Failed to create lead');
-    }
-    return res.json();
-  },
-
-  async updateLead(id: string, data: Partial<Lead>) {
-    const res = await fetch(`${API_BASE_URL}/crm/leads/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
-    });
-    if (!res.ok) {
-      const error = await res.json();
-      throw new Error(error.message || 'Failed to update lead');
-    }
-    return res.json();
-  },
-
-  async updateLeadStatus(id: string, status: Lead['status']) {
-    const res = await fetch(`${API_BASE_URL}/crm/leads/${id}/status`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status })
-    });
-    if (!res.ok) {
-      const error = await res.json();
-      throw new Error(error.message || 'Failed to update lead status');
-    }
-    return res.json();
-  },
-
-  async deleteLead(id: string) {
-    const res = await fetch(`${API_BASE_URL}/crm/leads/${id}`, {
-      method: 'DELETE'
-    });
-    if (!res.ok) {
-      const error = await res.json();
-      throw new Error(error.message || 'Failed to delete lead');
-    }
-    return res.json();
-  },
-
-  // Communications
-  async getCommunications(search?: string) {
-    const url = search 
-      ? `${API_BASE_URL}/crm/communications?search=${encodeURIComponent(search)}` 
-      : `${API_BASE_URL}/crm/communications`;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error('Failed to fetch communications');
-    return res.json();
-  },
-
-  async createCommunication(data: Omit<Communication, '_id' | 'createdAt'>) {
-    const res = await fetch(`${API_BASE_URL}/crm/communications`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
-    });
-    if (!res.ok) {
-      const error = await res.json();
-      throw new Error(error.message || 'Failed to create communication');
-    }
-    return res.json();
-  },
-
-  async deleteCommunication(id: string) {
-    const res = await fetch(`${API_BASE_URL}/crm/communications/${id}`, {
-      method: 'DELETE'
-    });
-    if (!res.ok) {
-      const error = await res.json();
-      throw new Error(error.message || 'Failed to delete communication');
-    }
-    return res.json();
-  }
-};
+import { 
+  crmService, 
+  Client, 
+  Lead, 
+  Communication,
+  CRMStats 
+} from "../../services/crmService";
 
 // Indian Data constants
 const indianCities = ["Mumbai", "Delhi", "Bangalore", "Hyderabad", "Chennai", "Kolkata", "Pune", "Ahmedabad"];
-const industries = ["IT Services", "Manufacturing", "Banking", "Healthcare", "Education", "Real Estate", "Retail", "Automobile"];
+const industries = ["MALL", "COMMERCIAL", "Banking", "Healthcare", "Education", "Real Estate", "Retail", "Automobile"];
 const leadSources = ["Website", "Referral", "Cold Call", "Social Media", "Email Campaign", "Trade Show"];
 const communicationTypes = ["call", "email", "meeting", "demo"];
 
@@ -237,7 +44,7 @@ const CRM = () => {
     stats: false
   });
 
-  const [stats, setStats] = useState({
+  const [stats, setStats] = useState<CRMStats>({
     totalClients: 0,
     activeLeads: 0,
     totalValue: "₹0",
@@ -255,25 +62,39 @@ const CRM = () => {
 
   // Fetch all data
   const fetchAllData = async () => {
-    await Promise.all([
-      fetchStats(),
-      fetchClients(),
-      fetchLeads(),
-      fetchCommunications()
-    ]);
+    setLoading({
+      clients: true,
+      leads: true,
+      communications: true,
+      stats: true
+    });
+
+    try {
+      const data = await crmService.fetchAllData(searchQuery);
+      setStats(data.stats);
+      setClients(data.clients);
+      setLeads(data.leads);
+      setCommunications(data.communications);
+    } catch (error) {
+      console.error("Failed to fetch data:", error);
+    } finally {
+      setLoading({
+        clients: false,
+        leads: false,
+        communications: false,
+        stats: false
+      });
+    }
   };
 
   // Fetch Stats
   const fetchStats = async () => {
     try {
       setLoading(prev => ({ ...prev, stats: true }));
-      const result = await api.getCRMStats();
-      if (result.success) {
-        setStats(result.data);
-      }
-    } catch (error: any) {
+      const statsData = await crmService.getStats();
+      setStats(statsData);
+    } catch (error) {
       console.error("Failed to fetch stats:", error);
-      toast.error("Failed to load CRM statistics");
     } finally {
       setLoading(prev => ({ ...prev, stats: false }));
     }
@@ -283,12 +104,10 @@ const CRM = () => {
   const fetchClients = async () => {
     try {
       setLoading(prev => ({ ...prev, clients: true }));
-      const result = await api.getClients(searchQuery);
-      if (result.success) {
-        setClients(result.data);
-      }
-    } catch (error: any) {
-      toast.error(error.message || "Failed to fetch clients");
+      const clientsData = await crmService.clients.getAll(searchQuery);
+      setClients(clientsData);
+    } catch (error) {
+      console.error("Failed to fetch clients:", error);
     } finally {
       setLoading(prev => ({ ...prev, clients: false }));
     }
@@ -298,12 +117,10 @@ const CRM = () => {
   const fetchLeads = async () => {
     try {
       setLoading(prev => ({ ...prev, leads: true }));
-      const result = await api.getLeads(searchQuery);
-      if (result.success) {
-        setLeads(result.data);
-      }
-    } catch (error: any) {
-      toast.error(error.message || "Failed to fetch leads");
+      const leadsData = await crmService.leads.getAll(searchQuery);
+      setLeads(leadsData);
+    } catch (error) {
+      console.error("Failed to fetch leads:", error);
     } finally {
       setLoading(prev => ({ ...prev, leads: false }));
     }
@@ -313,12 +130,10 @@ const CRM = () => {
   const fetchCommunications = async () => {
     try {
       setLoading(prev => ({ ...prev, communications: true }));
-      const result = await api.getCommunications(searchQuery);
-      if (result.success) {
-        setCommunications(result.data);
-      }
-    } catch (error: any) {
-      toast.error(error.message || "Failed to fetch communications");
+      const communicationsData = await crmService.communications.getAll(searchQuery);
+      setCommunications(communicationsData);
+    } catch (error) {
+      console.error("Failed to fetch communications:", error);
     } finally {
       setLoading(prev => ({ ...prev, communications: false }));
     }
@@ -354,14 +169,11 @@ const CRM = () => {
         contactPerson: formData.get("contactPerson") as string || "",
       };
 
-      const result = await api.createClient(newClient);
-      if (result.success) {
-        toast.success("Client added successfully!");
-        setClientDialogOpen(false);
-        fetchAllData();
-      }
-    } catch (error: any) {
-      toast.error(error.message || "Failed to add client");
+      await crmService.clients.create(newClient);
+      setClientDialogOpen(false);
+      fetchAllData();
+    } catch (error) {
+      console.error("Failed to add client:", error);
     }
   };
 
@@ -384,14 +196,11 @@ const CRM = () => {
         contactPerson: formData.get("contactPerson") as string,
       };
 
-      const result = await api.updateClient(editingClient._id, updateData);
-      if (result.success) {
-        toast.success("Client updated successfully!");
-        setEditingClient(null);
-        fetchAllData();
-      }
-    } catch (error: any) {
-      toast.error(error.message || "Failed to update client");
+      await crmService.clients.update(editingClient._id, updateData);
+      setEditingClient(null);
+      fetchAllData();
+    } catch (error) {
+      console.error("Failed to update client:", error);
     }
   };
 
@@ -399,13 +208,10 @@ const CRM = () => {
     if (!confirm("Are you sure you want to delete this client?")) return;
     
     try {
-      const result = await api.deleteClient(clientId);
-      if (result.success) {
-        toast.success("Client deleted successfully!");
-        fetchAllData();
-      }
-    } catch (error: any) {
-      toast.error(error.message || "Failed to delete client");
+      await crmService.clients.delete(clientId);
+      fetchAllData();
+    } catch (error) {
+      console.error("Failed to delete client:", error);
     }
   };
 
@@ -428,14 +234,11 @@ const CRM = () => {
         notes: formData.get("notes") as string || "",
       };
 
-      const result = await api.createLead(newLead);
-      if (result.success) {
-        toast.success("Lead added successfully!");
-        setLeadDialogOpen(false);
-        fetchAllData();
-      }
-    } catch (error: any) {
-      toast.error(error.message || "Failed to add lead");
+      await crmService.leads.create(newLead);
+      setLeadDialogOpen(false);
+      fetchAllData();
+    } catch (error) {
+      console.error("Failed to add lead:", error);
     }
   };
 
@@ -458,14 +261,11 @@ const CRM = () => {
         notes: formData.get("notes") as string,
       };
 
-      const result = await api.updateLead(editingLead._id, updateData);
-      if (result.success) {
-        toast.success("Lead updated successfully!");
-        setEditingLead(null);
-        fetchAllData();
-      }
-    } catch (error: any) {
-      toast.error(error.message || "Failed to update lead");
+      await crmService.leads.update(editingLead._id, updateData);
+      setEditingLead(null);
+      fetchAllData();
+    } catch (error) {
+      console.error("Failed to update lead:", error);
     }
   };
 
@@ -473,25 +273,19 @@ const CRM = () => {
     if (!confirm("Are you sure you want to delete this lead?")) return;
     
     try {
-      const result = await api.deleteLead(leadId);
-      if (result.success) {
-        toast.success("Lead deleted successfully!");
-        fetchAllData();
-      }
-    } catch (error: any) {
-      toast.error(error.message || "Failed to delete lead");
+      await crmService.leads.delete(leadId);
+      fetchAllData();
+    } catch (error) {
+      console.error("Failed to delete lead:", error);
     }
   };
 
   const handleLeadStatusChange = async (leadId: string, newStatus: Lead['status']) => {
     try {
-      const result = await api.updateLeadStatus(leadId, newStatus);
-      if (result.success) {
-        toast.success("Lead status updated!");
-        fetchAllData();
-      }
-    } catch (error: any) {
-      toast.error(error.message || "Failed to update lead status");
+      await crmService.leads.updateStatus(leadId, newStatus);
+      fetchAllData();
+    } catch (error) {
+      console.error("Failed to update lead status:", error);
     }
   };
 
@@ -511,14 +305,11 @@ const CRM = () => {
         followUpDate: formData.get("followUpDate") as string || undefined,
       };
 
-      const result = await api.createCommunication(newComm);
-      if (result.success) {
-        toast.success("Communication logged successfully!");
-        setCommDialogOpen(false);
-        fetchAllData();
-      }
-    } catch (error: any) {
-      toast.error(error.message || "Failed to log communication");
+      await crmService.communications.create(newComm);
+      setCommDialogOpen(false);
+      fetchAllData();
+    } catch (error) {
+      console.error("Failed to log communication:", error);
     }
   };
 
@@ -526,13 +317,10 @@ const CRM = () => {
     if (!confirm("Are you sure you want to delete this communication?")) return;
     
     try {
-      const result = await api.deleteCommunication(commId);
-      if (result.success) {
-        toast.success("Communication deleted!");
-        fetchAllData();
-      }
-    } catch (error: any) {
-      toast.error(error.message || "Failed to delete communication");
+      await crmService.communications.delete(commId);
+      fetchAllData();
+    } catch (error) {
+      console.error("Failed to delete communication:", error);
     }
   };
 
@@ -719,7 +507,7 @@ const CRM = () => {
                           </div>
                           <div className="space-y-2">
                             <Label htmlFor="industry">Industry</Label>
-                            <Select name="industry" defaultValue="IT Services">
+                            <Select name="industry" defaultValue="MALL">
                               <SelectTrigger>
                                 <SelectValue placeholder="Select industry" />
                               </SelectTrigger>

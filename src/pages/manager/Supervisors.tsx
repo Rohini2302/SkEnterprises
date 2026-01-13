@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -13,26 +13,25 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Search, Eye, Edit, Trash2, Mail, UserCheck, UserX } from "lucide-react";
+import { Plus, Search, Edit, Trash2, UserCheck, UserX, Users, Briefcase, Mail, Phone, MapPin } from "lucide-react";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
+import supervisorService, { Supervisor, CreateSupervisorData, UpdateSupervisorData } from "@/services/supervisorService";
 
 const supervisorSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters").max(100),
   email: z.string().email("Invalid email address"),
   phone: z.string().min(10, "Phone must be at least 10 digits").max(15),
-  password: z.string().min(6, "Password must be at least 6 characters").optional(),
+  password: z.string().min(6, "Password must be at least 6 characters"),
+  department: z.string().optional(),
+  site: z.string().optional(),
+  reportsTo: z.string().optional(),
 });
 
-type Supervisor = {
-  id: number;
-  name: string;
-  email: string;
-  phone: string;
-  employees: number;
-  tasks: number;
-  status: string;
-};
+type SupervisorFormData = z.infer<typeof supervisorSchema>;
+
+const departments = ['Operations', 'IT', 'HR', 'Finance', 'Marketing', 'Sales', 'Admin'];
+const sites = ['Mumbai Office', 'Delhi Branch', 'Bangalore Tech Park', 'Chennai Center', 'Hyderabad Campus'];
 
 const Supervisors = () => {
   const { onMenuClick } = useOutletContext<{ onMenuClick: () => void }>();
@@ -40,22 +39,54 @@ const Supervisors = () => {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingSupervisor, setEditingSupervisor] = useState<Supervisor | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [supervisorToDelete, setSupervisorToDelete] = useState<number | null>(null);
-  const [supervisors, setSupervisors] = useState<Supervisor[]>([
-    { id: 1, name: "Alice Supervisor", email: "alice.s@sk.com", phone: "+1234567890", employees: 8, tasks: 12, status: "active" },
-    { id: 2, name: "Bob Supervisor", email: "bob.s@sk.com", phone: "+1234567891", employees: 6, tasks: 9, status: "active" },
-    { id: 3, name: "Carol Supervisor", email: "carol.s@sk.com", phone: "+1234567892", employees: 5, tasks: 7, status: "inactive" },
-  ]);
+  const [supervisorToDelete, setSupervisorToDelete] = useState<string | null>(null);
+  const [supervisors, setSupervisors] = useState<Supervisor[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState({
+    total: 0,
+    active: 0,
+    inactive: 0
+  });
 
-  const form = useForm<z.infer<typeof supervisorSchema>>({
+  const form = useForm<SupervisorFormData>({
     resolver: zodResolver(supervisorSchema),
     defaultValues: {
       name: "",
       email: "",
       phone: "",
       password: "",
+      department: "Operations",
+      site: "Mumbai Office",
+      reportsTo: "",
     },
   });
+
+  // Fetch supervisors from Supervisor module only
+  const fetchSupervisors = async () => {
+    try {
+      setLoading(true);
+      const data = await supervisorService.getAllSupervisors();
+      setSupervisors(data);
+      
+      // Update stats
+      const active = data.filter(s => s.isActive).length;
+      const inactive = data.length - active;
+      setStats({
+        total: data.length,
+        active,
+        inactive
+      });
+    } catch (error) {
+      toast.error("Failed to fetch supervisors");
+      console.error(error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchSupervisors();
+  }, []);
 
   const handleOpenDialog = (supervisor?: Supervisor) => {
     if (supervisor) {
@@ -64,7 +95,10 @@ const Supervisors = () => {
         name: supervisor.name,
         email: supervisor.email,
         phone: supervisor.phone,
-        password: "",
+        department: supervisor.department,
+        site: supervisor.site,
+        reportsTo: supervisor.reportsTo || "",
+        password: "", // Don't show existing password for editing
       });
     } else {
       setEditingSupervisor(null);
@@ -73,62 +107,124 @@ const Supervisors = () => {
         email: "",
         phone: "",
         password: "",
+        department: "Operations",
+        site: "Mumbai Office",
+        reportsTo: "",
       });
     }
     setDialogOpen(true);
   };
 
-  const onSubmit = (values: z.infer<typeof supervisorSchema>) => {
-    if (editingSupervisor) {
-      setSupervisors(supervisors.map(s => 
-        s.id === editingSupervisor.id 
-          ? { ...s, name: values.name, email: values.email, phone: values.phone } 
-          : s
-      ));
-      toast.success("Supervisor updated successfully!");
-    } else {
-      const newSupervisor: Supervisor = {
-        id: Math.max(...supervisors.map(s => s.id)) + 1,
-        name: values.name,
-        email: values.email,
-        phone: values.phone,
-        employees: 0,
-        tasks: 0,
-        status: "active",
-      };
-      setSupervisors([...supervisors, newSupervisor]);
-      toast.success("Supervisor added successfully!");
+  const onSubmit = async (values: SupervisorFormData) => {
+    try {
+      if (editingSupervisor) {
+        // Update supervisor
+        const updateData: UpdateSupervisorData = {
+          name: values.name,
+          email: values.email,
+          phone: values.phone,
+          department: values.department,
+          site: values.site,
+          reportsTo: values.reportsTo,
+        };
+        
+        const updatedSupervisor = await supervisorService.updateSupervisor(
+          editingSupervisor._id,
+          updateData
+        );
+        
+        setSupervisors(supervisors.map(s => 
+          s._id === editingSupervisor._id ? updatedSupervisor : s
+        ));
+        toast.success("Supervisor updated successfully!");
+      } else {
+        // Create new supervisor
+        const createData: CreateSupervisorData = {
+          name: values.name,
+          email: values.email,
+          phone: values.phone,
+          password: values.password,
+          department: values.department,
+          site: values.site,
+          reportsTo: values.reportsTo,
+        };
+        
+        const newSupervisor = await supervisorService.createSupervisor(createData);
+        setSupervisors([newSupervisor, ...supervisors]);
+        toast.success("Supervisor added successfully! (Also added to User Management)");
+      }
+      
+      setDialogOpen(false);
+      form.reset();
+      fetchSupervisors(); // Refresh data
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || "Failed to save supervisor");
+      console.error(error);
     }
-    setDialogOpen(false);
-    form.reset();
   };
 
-  const handleDelete = () => {
-    if (supervisorToDelete) {
-      setSupervisors(supervisors.filter(s => s.id !== supervisorToDelete));
-      toast.success("Supervisor deleted successfully!");
+  const handleDelete = async () => {
+    if (!supervisorToDelete) return;
+    
+    try {
+      await supervisorService.deleteSupervisor(supervisorToDelete);
+      setSupervisors(supervisors.filter(s => s._id !== supervisorToDelete));
+      toast.success("Supervisor deleted successfully! (Also removed from User Management)");
       setDeleteDialogOpen(false);
       setSupervisorToDelete(null);
+      fetchSupervisors(); // Refresh stats
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || "Failed to delete supervisor");
     }
   };
 
-  const toggleStatus = (id: number) => {
-    setSupervisors(supervisors.map(s => 
-      s.id === id ? { ...s, status: s.status === "active" ? "inactive" : "active" } : s
-    ));
-    toast.success("Supervisor status updated!");
+  const toggleStatus = async (id: string) => {
+    try {
+      const updatedSupervisor = await supervisorService.toggleSupervisorStatus(id);
+      setSupervisors(supervisors.map(s => 
+        s._id === id ? updatedSupervisor : s
+      ));
+      
+      // Update stats
+      const active = supervisors.filter(s => s._id !== id && s.isActive).length + (updatedSupervisor.isActive ? 1 : 0);
+      const inactive = supervisors.length - active;
+      setStats({
+        ...stats,
+        active,
+        inactive
+      });
+      
+      toast.success("Supervisor status updated!");
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || "Failed to update status");
+    }
   };
 
   const filteredSupervisors = supervisors.filter(s => 
     s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    s.email.toLowerCase().includes(searchQuery.toLowerCase())
+    s.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    s.department.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    s.site.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  const getStatusColor = (status: string) => {
+    return status === "active" ? "default" : "secondary";
+  };
+
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric'
+    });
+  };
 
   return (
     <div className="min-h-screen bg-background">
       <DashboardHeader 
         title="Supervisors" 
-        subtitle="Manage your supervisors"
+        subtitle="Manage your supervisors (Separate from User Management)"
         onMenuClick={onMenuClick}
       />
       
@@ -137,9 +233,50 @@ const Supervisors = () => {
         animate={{ opacity: 1, y: 0 }}
         className="p-6 space-y-6"
       >
+       {/* Stats Cards */}
+<div className="grid gap-4 md:grid-cols-3">
+  <Card>
+    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+      <CardTitle className="text-sm font-medium">Total Supervisors</CardTitle>
+      <Users className="h-4 w-4 text-muted-foreground" />
+    </CardHeader>
+    <CardContent>
+      <div className="text-2xl font-bold">{stats.total}</div>
+      <p className="text-xs text-muted-foreground">Only from Supervisor Module</p>
+    </CardContent>
+  </Card>
+  
+  <Card>
+    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+      <CardTitle className="text-sm font-medium">Active Supervisors</CardTitle>
+      <UserCheck className="h-4 w-4 text-green-600" />
+    </CardHeader>
+    <CardContent>
+      <div className="text-2xl font-bold">{stats.active}</div>
+      <p className="text-xs text-muted-foreground">Currently active</p>
+    </CardContent>
+  </Card>
+  
+  <Card>
+    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+      <CardTitle className="text-sm font-medium">Inactive Supervisors</CardTitle>
+      <UserX className="h-4 w-4 text-red-600" />
+    </CardHeader>
+    <CardContent>
+      <div className="text-2xl font-bold">{stats.inactive}</div>
+      <p className="text-xs text-muted-foreground">Currently inactive</p>
+    </CardContent>
+  </Card>
+</div>
+
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0">
-            <CardTitle>All Supervisors</CardTitle>
+            <div>
+              <CardTitle>Supervisors List</CardTitle>
+              <p className="text-sm text-muted-foreground mt-1">
+                Manage supervisors from this module only ({supervisors.length} supervisors)
+              </p>
+            </div>
             <Button onClick={() => handleOpenDialog()}>
               <Plus className="mr-2 h-4 w-4" />
               Add Supervisor
@@ -150,7 +287,7 @@ const Supervisors = () => {
               <div className="relative">
                 <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Search supervisors..."
+                  placeholder="Search supervisors by name, email, department, or site..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="pl-10"
@@ -158,82 +295,145 @@ const Supervisors = () => {
               </div>
             </div>
             
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Employees</TableHead>
-                  <TableHead>Tasks</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredSupervisors.map((supervisor) => (
-                  <TableRow key={supervisor.id}>
-                    <TableCell className="font-medium">{supervisor.name}</TableCell>
-                    <TableCell>{supervisor.email}</TableCell>
-                    <TableCell>{supervisor.employees}</TableCell>
-                    <TableCell>{supervisor.tasks}</TableCell>
-                    <TableCell>
-                      <Badge variant={supervisor.status === "active" ? "default" : "secondary"}>
-                        {supervisor.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-2">
-                        <Button variant="ghost" size="icon" title="View Details">
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon" title="Send Email">
-                          <Mail className="h-4 w-4" />
-                        </Button>
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          onClick={() => handleOpenDialog(supervisor)}
-                          title="Edit"
-                        >
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button 
-                          variant="ghost" 
-                          size="icon"
-                          onClick={() => toggleStatus(supervisor.id)}
-                          title={supervisor.status === "active" ? "Deactivate" : "Activate"}
-                        >
-                          {supervisor.status === "active" ? (
-                            <UserX className="h-4 w-4 text-destructive" />
-                          ) : (
-                            <UserCheck className="h-4 w-4 text-primary" />
-                          )}
-                        </Button>
-                        <Button 
-                          variant="ghost" 
-                          size="icon"
-                          onClick={() => {
-                            setSupervisorToDelete(supervisor.id);
-                            setDeleteDialogOpen(true);
-                          }}
-                          title="Delete"
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </div>
-                    </TableCell>
+            {loading ? (
+              <div className="py-8 text-center">
+                <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full mx-auto"></div>
+                <p className="mt-2 text-muted-foreground">Loading supervisors...</p>
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Contact</TableHead>
+                    <TableHead>Department</TableHead>
+                    <TableHead>Site</TableHead>
+                    <TableHead>Metrics</TableHead>
+                    <TableHead>Join Date</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {filteredSupervisors.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                        {searchQuery ? "No supervisors found matching your search" : "No supervisors added yet"}
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    filteredSupervisors.map((supervisor) => (
+                      <TableRow key={supervisor._id}>
+                        <TableCell className="font-medium">
+                          <div>
+                            <div>{supervisor.name}</div>
+                            <div className="text-xs text-muted-foreground mt-1">
+                              ID: {supervisor._id.slice(-6)}
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-1">
+                              <Mail className="h-3 w-3 text-muted-foreground" />
+                              <span className="text-sm">{supervisor.email}</span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <Phone className="h-3 w-3 text-muted-foreground" />
+                              <span className="text-sm">{supervisor.phone}</span>
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline">
+                            {supervisor.department}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1">
+                            <MapPin className="h-3 w-3 text-muted-foreground" />
+                            {supervisor.site}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-1">
+                              <Users className="h-3 w-3 text-muted-foreground" />
+                              <span className="text-sm">{supervisor.employees} employees</span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <Briefcase className="h-3 w-3 text-muted-foreground" />
+                              <span className="text-sm">{supervisor.tasks} tasks</span>
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="text-sm">
+                            {formatDate(supervisor.joinDate)}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={getStatusColor(supervisor.status)}>
+                            {supervisor.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-2">
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              onClick={() => handleOpenDialog(supervisor)}
+                              title="Edit"
+                            >
+                              <Edit className="h-3 w-3" />
+                            </Button>
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              onClick={() => toggleStatus(supervisor._id)}
+                              title={supervisor.isActive ? "Deactivate" : "Activate"}
+                            >
+                              {supervisor.isActive ? (
+                                <UserX className="h-3 w-3 text-destructive" />
+                              ) : (
+                                <UserCheck className="h-3 w-3 text-primary" />
+                              )}
+                            </Button>
+                            <Button 
+                              variant="destructive" 
+                              size="sm"
+                              onClick={() => {
+                                setSupervisorToDelete(supervisor._id);
+                                setDeleteDialogOpen(true);
+                              }}
+                              title="Delete"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            )}
           </CardContent>
         </Card>
       </motion.div>
 
+      {/* Add/Edit Supervisor Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
-            <DialogTitle>{editingSupervisor ? "Edit Supervisor" : "Add New Supervisor"}</DialogTitle>
+            <DialogTitle>
+              {editingSupervisor ? "Edit Supervisor" : "Add New Supervisor"}
+              <p className="text-sm text-muted-foreground font-normal mt-1">
+                {editingSupervisor 
+                  ? "Changes will sync to User Management" 
+                  : "Will also be added to User Management"}
+              </p>
+            </DialogTitle>
           </DialogHeader>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
@@ -242,7 +442,7 @@ const Supervisors = () => {
                 name="name"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Full Name</FormLabel>
+                    <FormLabel>Full Name *</FormLabel>
                     <FormControl>
                       <Input placeholder="Enter full name" {...field} />
                     </FormControl>
@@ -250,39 +450,43 @@ const Supervisors = () => {
                   </FormItem>
                 )}
               />
-              <FormField
-                control={form.control}
-                name="email"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Email</FormLabel>
-                    <FormControl>
-                      <Input type="email" placeholder="Enter email" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="phone"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Phone Number</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Enter phone number" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              
+              <div className="grid grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
+                  name="email"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Email *</FormLabel>
+                      <FormControl>
+                        <Input type="email" placeholder="Enter email" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="phone"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Phone *</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Enter phone number" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
               {!editingSupervisor && (
                 <FormField
                   control={form.control}
                   name="password"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Password</FormLabel>
+                      <FormLabel>Password *</FormLabel>
                       <FormControl>
                         <Input type="password" placeholder="Enter password" {...field} />
                       </FormControl>
@@ -291,12 +495,74 @@ const Supervisors = () => {
                   )}
                 />
               )}
+
+              <div className="grid grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
+                  name="department"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Department</FormLabel>
+                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select department" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {departments.map(dept => (
+                            <SelectItem key={dept} value={dept}>{dept}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="site"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Site</FormLabel>
+                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select site" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {sites.map(site => (
+                            <SelectItem key={site} value={site}>{site}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              <FormField
+                control={form.control}
+                name="reportsTo"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Reports To (Manager/Admin Email)</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Enter manager/admin email (optional)" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
               <div className="flex justify-end gap-2 pt-4">
                 <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
                   Cancel
                 </Button>
                 <Button type="submit">
-                  {editingSupervisor ? "Update" : "Create"}
+                  {editingSupervisor ? "Update Supervisor" : "Create Supervisor"}
                 </Button>
               </div>
             </form>
@@ -304,18 +570,20 @@ const Supervisors = () => {
         </DialogContent>
       </Dialog>
 
+      {/* Delete Confirmation Dialog */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Supervisor</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete this supervisor? This action cannot be undone.
+              Are you sure you want to delete this supervisor? 
+              This action will also remove them from User Management and cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-              Delete
+              Delete Supervisor
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -1,7 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { DashboardHeader } from "@/components/shared/DashboardHeader";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -9,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
 import { 
   Search, 
   Plus, 
@@ -25,313 +24,102 @@ import {
   MessageCircle, 
   Paperclip, 
   User, 
-  BarChart3,
   Sparkles,
   Trash2,
   Car,
   Shield,
-  Wifi
+  Wrench,
+  Download,
+  Calendar,
+  MapPin,
+  Filter,
+  RefreshCw
 } from "lucide-react";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
+import { useWorkQuery } from "@/hooks/useWorkQuery";
+import { format } from "date-fns";
 
-// Types
+// Types matching the API
+interface WorkQueryProofFile {
+  name: string;
+  type: 'image' | 'video' | 'document' | 'other';
+  url: string;
+  public_id: string;
+  size: string;
+  format?: string;
+  bytes?: number;
+  uploadDate: string;
+}
+
 interface WorkQuery {
-  id: number;
+  _id: string;
   queryId: string;
   title: string;
   description: string;
-  type: "task" | "service"; // New field to distinguish between task and service queries
-  relatedId: string; // Can be taskId or serviceId
-  relatedTo: string; // Task title or Service title
-  employeeId?: string; // Only for task queries
-  employeeName?: string; // Only for task queries
-  serviceType?: "cleaning" | "waste-management" | "parking-management" | "security" | "maintenance"; // Only for service queries
-  serviceStaffId?: string; // Only for service queries
-  serviceStaffName?: string; // Only for service queries
-  priority: "low" | "medium" | "high" | "critical";
-  status: "pending" | "in-progress" | "resolved" | "rejected";
+  type: 'service' | 'task';
+  serviceId?: string;
+  serviceTitle?: string;
+  serviceType?: string;
+  serviceStaffId?: string;
+  serviceStaffName?: string;
+  employeeId?: string;
+  employeeName?: string;
+  priority: 'low' | 'medium' | 'high' | 'critical';
+  status: 'pending' | 'in-progress' | 'resolved' | 'rejected';
   category: string;
-  proofFiles: ProofFile[];
+  proofFiles: WorkQueryProofFile[];
+  reportedBy: {
+    userId: string;
+    name: string;
+    role: string;
+  };
+  assignedTo?: {
+    userId: string;
+    name: string;
+    role: string;
+  };
   supervisorId: string;
   supervisorName: string;
-  createdAt: string;
-  updatedAt: string;
   superadminResponse?: string;
   responseDate?: string;
+  comments: Array<{
+    userId: string;
+    name: string;
+    comment: string;
+    timestamp: string;
+  }>;
+  createdAt: string;
+  updatedAt: string;
 }
 
-interface ProofFile {
-  id: number;
-  name: string;
-  type: "image" | "video" | "document" | "other";
-  url: string;
-  uploadDate: string;
-  size: string;
-}
-
-interface AssignedTask {
-  id: number;
-  taskId: string;
-  title: string;
-  description: string;
-  assignedTo: string;
-  assignedToName: string;
-  deadline: string;
-  status: "pending" | "in-progress" | "completed" | "delayed";
-  priority: "low" | "medium" | "high";
-}
-
-interface FacilityService {
-  id: number;
+// Fix: Use the API Service type directly
+interface Service {
+  _id: string;
   serviceId: string;
-  type: "cleaning" | "waste-management" | "parking-management" | "security" | "maintenance";
+  type: string;  // Changed from specific union to string
   title: string;
   description: string;
   location: string;
   assignedTo: string;
   assignedToName: string;
-  status: "pending" | "in-progress" | "completed" | "cancelled";
+  status: string;
   schedule: string;
+  supervisorId: string;
 }
 
-// Sample Data
-const initialTasks: AssignedTask[] = [
-  {
-    id: 1,
-    taskId: "TASK001",
-    title: "Website Redesign - Homepage",
-    description: "Redesign the company homepage with modern UI/UX principles",
-    assignedTo: "EMP001",
-    assignedToName: "Rajesh Kumar",
-    deadline: "2024-02-15",
-    status: "in-progress",
-    priority: "high"
-  },
-  {
-    id: 2,
-    taskId: "TASK002",
-    title: "Database Optimization",
-    description: "Optimize database queries and improve performance",
-    assignedTo: "EMP002",
-    assignedToName: "Priya Sharma",
-    deadline: "2024-02-20",
-    status: "pending",
-    priority: "medium"
+// Helper function to safely convert string to service type
+const getServiceType = (type: string): 'cleaning' | 'waste-management' | 'parking-management' | 'security' | 'maintenance' => {
+  switch(type.toLowerCase()) {
+    case 'cleaning':
+    case 'waste-management':
+    case 'parking-management':
+    case 'security':
+    case 'maintenance':
+      return type.toLowerCase() as any;
+    default:
+      return 'cleaning'; // default fallback
   }
-];
-
-const initialServices: FacilityService[] = [
-  {
-    id: 1,
-    serviceId: "CLEAN001",
-    type: "cleaning",
-    title: "Office Floor Deep Cleaning",
-    description: "Complete deep cleaning of entire office floor including carpets, windows, and furniture",
-    location: "Floor 3 - Main Office",
-    assignedTo: "STAFF001",
-    assignedToName: "Ramesh Kumar",
-    status: "in-progress",
-    schedule: "2024-02-15T09:00:00"
-  },
-  {
-    id: 2,
-    serviceId: "WASTE001",
-    type: "waste-management",
-    title: "Biomedical Waste Collection",
-    description: "Urgent collection and disposal of biomedical waste from clinic area",
-    location: "Building B - Clinic Wing",
-    assignedTo: "STAFF002",
-    assignedToName: "Suresh Patel",
-    status: "pending",
-    schedule: "2024-02-15T14:00:00"
-  },
-  {
-    id: 3,
-    serviceId: "PARK001",
-    type: "parking-management",
-    title: "Parking Lot Reorganization",
-    description: "Reorganize parking lot markings and assign new parking slots",
-    location: "Main Parking Lot - North Side",
-    assignedTo: "STAFF003",
-    assignedToName: "Anil Sharma",
-    status: "completed",
-    schedule: "2024-02-14T10:00:00"
-  }
-];
-
-const initialWorkQueries: WorkQuery[] = [
-  // Task-related queries
-  {
-    id: 1,
-    queryId: "QUERY001",
-    title: "Employee not following task guidelines",
-    description: "The assigned employee is not following the established design guidelines for the homepage redesign. The color scheme and layout are inconsistent with our brand standards.",
-    type: "task",
-    relatedId: "TASK001",
-    relatedTo: "Website Redesign - Homepage",
-    employeeId: "EMP001",
-    employeeName: "Rajesh Kumar",
-    priority: "high",
-    status: "pending",
-    category: "work-quality",
-    proofFiles: [
-      {
-        id: 1,
-        name: "screenshot-design-issue.png",
-        type: "image",
-        url: "#",
-        uploadDate: "2024-02-01",
-        size: "2.4 MB"
-      }
-    ],
-    supervisorId: "SUP001",
-    supervisorName: "Supervisor User",
-    createdAt: "2024-02-01T10:30:00",
-    updatedAt: "2024-02-01T10:30:00"
-  },
-  // Service-related queries
-  {
-    id: 2,
-    queryId: "QUERY002",
-    title: "Cleaning service not meeting standards",
-    description: "The deep cleaning service performed today did not meet the expected standards. Dust accumulation visible in corners and windows not properly cleaned.",
-    type: "service",
-    relatedId: "CLEAN001",
-    relatedTo: "Office Floor Deep Cleaning",
-    serviceType: "cleaning",
-    serviceStaffId: "STAFF001",
-    serviceStaffName: "Ramesh Kumar",
-    priority: "high",
-    status: "in-progress",
-    category: "service-quality",
-    proofFiles: [
-      {
-        id: 1,
-        name: "dust-corner.jpg",
-        type: "image",
-        url: "#",
-        uploadDate: "2024-02-15",
-        size: "1.8 MB"
-      },
-      {
-        id: 2,
-        name: "dirty-window.jpg",
-        type: "image",
-        url: "#",
-        uploadDate: "2024-02-15",
-        size: "2.1 MB"
-      }
-    ],
-    supervisorId: "SUP001",
-    supervisorName: "Supervisor User",
-    createdAt: "2024-02-15T11:20:00",
-    updatedAt: "2024-02-15T11:20:00",
-    superadminResponse: "We will arrange for re-cleaning and provide additional training to the staff.",
-    responseDate: "2024-02-15T14:30:00"
-  },
-  {
-    id: 3,
-    queryId: "QUERY003",
-    title: "Waste not collected on time",
-    description: "Scheduled waste collection for biomedical waste was missed. Waste bins are overflowing and creating hygiene issues in clinic area.",
-    type: "service",
-    relatedId: "WASTE001",
-    relatedTo: "Biomedical Waste Collection",
-    serviceType: "waste-management",
-    serviceStaffId: "STAFF002",
-    serviceStaffName: "Suresh Patel",
-    priority: "critical",
-    status: "pending",
-    category: "service-delay",
-    proofFiles: [
-      {
-        id: 1,
-        name: "overflowing-bins.jpg",
-        type: "image",
-        url: "#",
-        uploadDate: "2024-02-15",
-        size: "2.5 MB"
-      }
-    ],
-    supervisorId: "SUP001",
-    supervisorName: "Supervisor User",
-    createdAt: "2024-02-15T16:45:00",
-    updatedAt: "2024-02-15T16:45:00"
-  },
-  {
-    id: 4,
-    queryId: "QUERY004",
-    title: "Parking slots not properly marked",
-    description: "New parking slots are not clearly marked and numbered. Employees are confused about assigned parking areas.",
-    type: "service",
-    relatedId: "PARK001",
-    relatedTo: "Parking Lot Reorganization",
-    serviceType: "parking-management",
-    serviceStaffId: "STAFF003",
-    serviceStaffName: "Anil Sharma",
-    priority: "medium",
-    status: "resolved",
-    category: "service-quality",
-    proofFiles: [
-      {
-        id: 1,
-        name: "parking-markings.jpg",
-        type: "image",
-        url: "#",
-        uploadDate: "2024-02-14",
-        size: "3.2 MB"
-      }
-    ],
-    supervisorId: "SUP001",
-    supervisorName: "Supervisor User",
-    createdAt: "2024-02-14T15:30:00",
-    updatedAt: "2024-02-15T10:15:00",
-    superadminResponse: "Parking attendant has been instructed to re-mark all slots clearly. Work completed today.",
-    responseDate: "2024-02-15T10:15:00"
-  }
-];
-
-const categories = [
-  "work-quality",
-  "deadline-missed",
-  "technical-issue",
-  "communication-issue",
-  "resource-needed",
-  "behavioral-issue",
-  "service-quality",
-  "service-delay",
-  "safety-issue",
-  "other"
-];
-
-const categoryLabels: { [key: string]: string } = {
-  "work-quality": "Work Quality Issue",
-  "deadline-missed": "Deadline Missed",
-  "technical-issue": "Technical Issue",
-  "communication-issue": "Communication Issue",
-  "resource-needed": "Resources Needed",
-  "behavioral-issue": "Behavioral Issue",
-  "service-quality": "Service Quality Issue",
-  "service-delay": "Service Delay",
-  "safety-issue": "Safety Issue",
-  "other": "Other"
-};
-
-const serviceTypeLabels: { [key: string]: string } = {
-  "cleaning": "Cleaning Service",
-  "waste-management": "Waste Management",
-  "parking-management": "Parking Management",
-  "security": "Security Service",
-  "maintenance": "Maintenance"
-};
-
-const serviceIcons: { [key: string]: any } = {
-  "cleaning": Sparkles,
-  "waste-management": Trash2,
-  "parking-management": Car,
-  "security": Shield,
-  "maintenance": Wifi
 };
 
 // Reusable Components
@@ -351,11 +139,9 @@ const PriorityBadge = ({ priority }: { priority: string }) => {
   };
 
   return (
-    <Badge variant="outline" className={styles[priority as keyof typeof styles]}>
-      <span className="flex items-center gap-1">
-        {icons[priority as keyof typeof icons]}
-        {priority.charAt(0).toUpperCase() + priority.slice(1)}
-      </span>
+    <Badge variant="outline" className={`${styles[priority as keyof typeof styles]} flex items-center gap-1`}>
+      {icons[priority as keyof typeof icons]}
+      {priority.charAt(0).toUpperCase() + priority.slice(1)}
     </Badge>
   );
 };
@@ -376,38 +162,14 @@ const StatusBadge = ({ status }: { status: string }) => {
   };
 
   return (
-    <Badge variant="outline" className={styles[status as keyof typeof styles]}>
-      <span className="flex items-center gap-1">
-        {icons[status as keyof typeof icons]}
-        {status.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
-      </span>
-    </Badge>
-  );
-};
-
-const QueryTypeBadge = ({ type }: { type: string }) => {
-  const styles = {
-    task: "bg-purple-100 text-purple-800 border-purple-200",
-    service: "bg-blue-100 text-blue-800 border-blue-200"
-  };
-
-  const icons = {
-    task: <User className="h-3 w-3" />,
-    service: <Sparkles className="h-3 w-3" />
-  };
-
-  return (
-    <Badge variant="outline" className={styles[type as keyof typeof styles]}>
-      <span className="flex items-center gap-1">
-        {icons[type as keyof typeof icons]}
-        {type.charAt(0).toUpperCase() + type.slice(1)} Related
-      </span>
+    <Badge variant="outline" className={`${styles[status as keyof typeof styles]} flex items-center gap-1`}>
+      {icons[status as keyof typeof icons]}
+      {status.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
     </Badge>
   );
 };
 
 const ServiceTypeBadge = ({ type }: { type: string }) => {
-  const Icon = serviceIcons[type] || Sparkles;
   const styles = {
     cleaning: "bg-blue-100 text-blue-800 border-blue-200",
     "waste-management": "bg-green-100 text-green-800 border-green-200",
@@ -416,12 +178,21 @@ const ServiceTypeBadge = ({ type }: { type: string }) => {
     "maintenance": "bg-red-100 text-red-800 border-red-200"
   };
 
+  const icons = {
+    cleaning: Sparkles,
+    "waste-management": Trash2,
+    "parking-management": Car,
+    "security": Shield,
+    "maintenance": Wrench
+  };
+
+  const safeType = getServiceType(type);
+  const Icon = icons[safeType];
+
   return (
-    <Badge variant="outline" className={styles[type as keyof typeof styles]}>
-      <span className="flex items-center gap-1">
-        <Icon className="h-3 w-3" />
-        {serviceTypeLabels[type]}
-      </span>
+    <Badge variant="outline" className={`${styles[safeType]} flex items-center gap-1`}>
+      <Icon className="h-3 w-3" />
+      {safeType.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
     </Badge>
   );
 };
@@ -453,22 +224,25 @@ const FilePreview = ({ file, onRemove }: { file: File; onRemove: () => void }) =
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
+  const fileType = getFileType(file.type);
+
   return (
-    <div className="flex items-center justify-between p-3 border rounded-lg">
+    <div className="flex items-center justify-between p-3 border rounded-lg bg-gray-50">
       <div className="flex items-center gap-3">
-        <div className="p-2 bg-gray-100 rounded-lg">
-          <FileIcon type={getFileType(file.type)} />
+        <div className="p-2 bg-white rounded-lg border">
+          <FileIcon type={fileType} />
         </div>
         <div>
-          <div className="font-medium text-sm">{file.name}</div>
+          <div className="font-medium text-sm truncate max-w-xs">{file.name}</div>
           <div className="text-xs text-muted-foreground">
-            {formatFileSize(file.size)} • {getFileType(file.type).charAt(0).toUpperCase() + getFileType(file.type).slice(1)}
+            {formatFileSize(file.size)} • {fileType.charAt(0).toUpperCase() + fileType.slice(1)}
           </div>
         </div>
       </div>
       <Button
         size="sm"
-        variant="destructive"
+        variant="ghost"
+        className="h-8 w-8 p-0 hover:bg-red-50 hover:text-red-600"
         onClick={onRemove}
       >
         <X className="h-3 w-3" />
@@ -478,64 +252,102 @@ const FilePreview = ({ file, onRemove }: { file: File; onRemove: () => void }) =
 };
 
 // Main Component
-const WorkQuery = () => {
-  const [workQueries, setWorkQueries] = useState<WorkQuery[]>(initialWorkQueries);
-  const [tasks, setTasks] = useState<AssignedTask[]>(initialTasks);
-  const [services, setServices] = useState<FacilityService[]>(initialServices);
+const WorkQueryPage = () => {
+  const supervisorId = "SUP001"; // Replace with actual supervisor ID from auth
+  const supervisorName = "Supervisor User"; // Replace with actual supervisor name
+  
+  const {
+    workQueries,
+    services,
+    statistics,
+    categories,
+    serviceTypes,
+    priorities,
+    statuses,
+    loading,
+    createWorkQuery,
+    fetchWorkQueries,
+    fetchServices,
+    fetchStatistics,
+    formatFileSize,
+    getFileIcon,
+    validateFile,
+    downloadFile,
+    previewFile,
+    pagination,
+    changePage,
+    changeLimit
+  } = useWorkQuery({
+    supervisorId,
+    autoFetch: true,
+    initialFilters: {
+      page: 1,
+      limit: 10
+    }
+  });
+
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [priorityFilter, setPriorityFilter] = useState<string>("all");
-  const [typeFilter, setTypeFilter] = useState<string>("all");
+  const [serviceTypeFilter, setServiceTypeFilter] = useState<string>("all");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
 
   // New query form state
   const [newQuery, setNewQuery] = useState({
-    type: "task" as "task" | "service",
     title: "",
     description: "",
-    relatedId: "",
+    serviceId: "",
     priority: "medium" as "low" | "medium" | "high" | "critical",
-    category: "work-quality"
+    category: "service-quality",
+    supervisorId,
+    supervisorName
   });
 
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
+  const [selectedService, setSelectedService] = useState<Service | null>(null);
 
   // Filter work queries
   const filteredQueries = workQueries.filter(query => {
     const matchesSearch = 
       query.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
       query.queryId.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      query.relatedTo.toLowerCase().includes(searchTerm.toLowerCase());
+      query.description.toLowerCase().includes(searchTerm.toLowerCase());
     
     const matchesStatus = statusFilter === "all" || query.status === statusFilter;
     const matchesPriority = priorityFilter === "all" || query.priority === priorityFilter;
-    const matchesType = typeFilter === "all" || query.type === typeFilter;
+    const matchesServiceType = serviceTypeFilter === "all" || query.serviceType === serviceTypeFilter;
 
-    return matchesSearch && matchesStatus && matchesPriority && matchesType;
+    return matchesSearch && matchesStatus && matchesPriority && matchesServiceType;
   });
 
   // Handle file upload
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
-    if (files) {
-      const newFiles = Array.from(files);
-      
-      // Check file sizes (max 10MB per file)
-      const oversizedFiles = newFiles.filter(file => file.size > 10 * 1024 * 1024);
-      if (oversizedFiles.length > 0) {
-        toast.error("Some files exceed the 10MB size limit");
-        return;
-      }
+    if (!files) return;
 
-      // Check total files count (max 5 files)
-      if (uploadedFiles.length + newFiles.length > 5) {
-        toast.error("Maximum 5 files allowed per query");
-        return;
+    const newFiles = Array.from(files);
+    const invalidFiles: string[] = [];
+    
+    // Validate each file
+    newFiles.forEach(file => {
+      if (!validateFile(file)) {
+        invalidFiles.push(file.name);
       }
+    });
 
-      setUploadedFiles(prev => [...prev, ...newFiles]);
-      toast.success(`${newFiles.length} file(s) uploaded successfully`);
+    if (invalidFiles.length > 0) {
+      toast.error(`Invalid files: ${invalidFiles.join(', ')}. Allowed: Images, Videos, PDFs, Docs (Max 25MB)`);
+      return;
     }
+
+    // Check total files count (max 10 files)
+    if (uploadedFiles.length + newFiles.length > 10) {
+      toast.error("Maximum 10 files allowed per query");
+      return;
+    }
+
+    setUploadedFiles(prev => [...prev, ...newFiles]);
+    toast.success(`${newFiles.length} file(s) uploaded successfully`);
   };
 
   // Handle file removal
@@ -543,139 +355,98 @@ const WorkQuery = () => {
     setUploadedFiles(prev => prev.filter((_, i) => i !== index));
   };
 
-  // Handle related item selection
-  const handleRelatedItemSelect = (itemId: string) => {
-    setNewQuery(prev => ({ ...prev, relatedId: itemId }));
-  };
-
-  // Get related items based on selected type
-  const getRelatedItems = () => {
-    if (newQuery.type === "task") {
-      return tasks;
-    } else {
-      return services;
-    }
-  };
-
-  // Get selected related item details
-  const getSelectedRelatedItem = () => {
-    if (!newQuery.relatedId) return null;
-    
-    if (newQuery.type === "task") {
-      return tasks.find(task => task.taskId === newQuery.relatedId);
-    } else {
-      return services.find(service => service.serviceId === newQuery.relatedId);
-    }
+  // Handle service selection - FIXED: No type error now
+  const handleServiceSelect = (serviceId: string) => {
+    const service = services.find(s => s.serviceId === serviceId);
+    setSelectedService(service || null);
+    setNewQuery(prev => ({ ...prev, serviceId }));
   };
 
   // Handle form submission
-  const handleSubmitQuery = (e: React.FormEvent) => {
+  const handleSubmitQuery = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!newQuery.title || !newQuery.description || !newQuery.relatedId) {
+    // Validate required fields
+    if (!newQuery.title || !newQuery.description || !newQuery.serviceId) {
       toast.error("Please fill all required fields");
       return;
     }
 
-    const selectedItem = getSelectedRelatedItem();
-    if (!selectedItem) {
-      toast.error("Selected item not found");
+    if (!selectedService) {
+      toast.error("Please select a service");
       return;
     }
 
-    // Create new query
-    const newWorkQuery: WorkQuery = {
-      id: workQueries.length + 1,
-      queryId: `QUERY${String(workQueries.length + 1).padStart(3, '0')}`,
-      title: newQuery.title,
-      description: newQuery.description,
-      type: newQuery.type,
-      relatedId: newQuery.relatedId,
-      relatedTo: 'taskId' in selectedItem ? selectedItem.title : selectedItem.title,
-      priority: newQuery.priority,
-      status: "pending",
-      category: newQuery.category,
-      proofFiles: uploadedFiles.map((file, index) => ({
-        id: index + 1,
-        name: file.name,
-        type: file.type.startsWith('image/') ? 'image' : 
-              file.type.startsWith('video/') ? 'video' : 
-              file.type.includes('pdf') || file.type.includes('document') || file.type.includes('text') ? 'document' : 'other',
-        url: URL.createObjectURL(file),
-        uploadDate: new Date().toISOString(),
-        size: `${(file.size / (1024 * 1024)).toFixed(1)} MB`
-      })),
-      supervisorId: "SUP001",
-      supervisorName: "Supervisor User",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
-
-    // Add additional fields based on type
-    if (newQuery.type === "task" && 'assignedTo' in selectedItem) {
-      newWorkQuery.employeeId = selectedItem.assignedTo;
-      newWorkQuery.employeeName = selectedItem.assignedToName;
-    } else if (newQuery.type === "service" && 'type' in selectedItem) {
-      newWorkQuery.serviceType = selectedItem.type;
-      newWorkQuery.serviceStaffId = selectedItem.assignedTo;
-      newWorkQuery.serviceStaffName = selectedItem.assignedToName;
+    try {
+      const result = await createWorkQuery({
+        ...newQuery,
+        serviceTitle: selectedService.title,
+        serviceTeam: selectedService.type // This is now a string, which matches the API
+      }, uploadedFiles);
+      
+      if (result.success) {
+        // Reset form
+        setNewQuery({
+          title: "",
+          description: "",
+          serviceId: "",
+          priority: "medium",
+          category: "service-quality",
+          supervisorId,
+          supervisorName
+        });
+        setUploadedFiles([]);
+        setSelectedService(null);
+        setIsDialogOpen(false);
+        
+        // Refresh data
+        fetchWorkQueries();
+        fetchStatistics();
+        
+        toast.success("Work query created successfully!");
+      } else {
+        toast.error(result.error || "Failed to create work query");
+      }
+    } catch (error) {
+      console.error("Error creating work query:", error);
+      toast.error("Failed to create work query. Please try again.");
     }
-
-    setWorkQueries(prev => [newWorkQuery, ...prev]);
-    
-    // Reset form
-    setNewQuery({
-      type: "task",
-      title: "",
-      description: "",
-      relatedId: "",
-      priority: "medium",
-      category: "work-quality"
-    });
-    setUploadedFiles([]);
-    setIsDialogOpen(false);
-    
-    toast.success("Work query submitted successfully!");
   };
 
-  // Get statistics
-  const statusCounts = {
-    pending: workQueries.filter(q => q.status === "pending").length,
-    "in-progress": workQueries.filter(q => q.status === "in-progress").length,
-    resolved: workQueries.filter(q => q.status === "resolved").length,
-    rejected: workQueries.filter(q => q.status === "rejected").length
+  // Refresh data
+  const handleRefresh = () => {
+    fetchWorkQueries();
+    fetchServices();
+    fetchStatistics();
+    toast.success("Data refreshed successfully");
   };
 
-  const priorityCounts = {
-    low: workQueries.filter(q => q.priority === "low").length,
-    medium: workQueries.filter(q => q.priority === "medium").length,
-    high: workQueries.filter(q => q.priority === "high").length,
-    critical: workQueries.filter(q => q.priority === "critical").length
+  // Format date
+  const formatDate = (dateString: string) => {
+    try {
+      return format(new Date(dateString), "MMM dd, yyyy HH:mm");
+    } catch (error) {
+      return "Invalid date";
+    }
   };
 
-  const typeCounts = {
-    task: workQueries.filter(q => q.type === "task").length,
-    service: workQueries.filter(q => q.type === "service").length
-  };
-
-  const serviceTypeCounts = {
-    cleaning: workQueries.filter(q => q.serviceType === "cleaning").length,
-    "waste-management": workQueries.filter(q => q.serviceType === "waste-management").length,
-    "parking-management": workQueries.filter(q => q.serviceType === "parking-management").length,
-    "security": workQueries.filter(q => q.serviceType === "security").length,
-    "maintenance": workQueries.filter(q => q.serviceType === "maintenance").length
+  // Also fix the ServiceTypeBadge usage in the table
+  const TableServiceTypeBadge = ({ type }: { type?: string }) => {
+    if (!type) return null;
+    return <ServiceTypeBadge type={type} />;
   };
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-gray-50">
       <DashboardHeader 
         title="Work Query Management" 
-        subtitle="Report and track issues with assigned tasks and facility services"
+        subtitle="Report and track issues with facility services"
       />
       
       <motion.div 
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3 }}
         className="p-6 space-y-6"
       >
         {/* Statistics Cards */}
@@ -686,80 +457,71 @@ const WorkQuery = () => {
               <MessageCircle className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{workQueries.length}</div>
+              <div className="text-2xl font-bold">
+                {loading.statistics ? "Loading..." : statistics?.total || 0}
+              </div>
               <p className="text-xs text-muted-foreground">All queries</p>
             </CardContent>
           </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Task Queries</CardTitle>
-              <User className="h-4 w-4 text-purple-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-purple-600">{typeCounts.task}</div>
-              <p className="text-xs text-muted-foreground">Employee task issues</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Service Queries</CardTitle>
-              <Sparkles className="h-4 w-4 text-blue-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-blue-600">{typeCounts.service}</div>
-              <p className="text-xs text-muted-foreground">Facility service issues</p>
-            </CardContent>
-          </Card>
+          
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Pending</CardTitle>
               <Clock className="h-4 w-4 text-yellow-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-yellow-600">{statusCounts.pending}</div>
+              <div className="text-2xl font-bold text-yellow-600">
+                {loading.statistics ? "..." : statistics?.statusCounts?.pending || 0}
+              </div>
               <p className="text-xs text-muted-foreground">Awaiting response</p>
+            </CardContent>
+          </Card>
+          
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">In Progress</CardTitle>
+              <AlertCircle className="h-4 w-4 text-blue-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-blue-600">
+                {loading.statistics ? "..." : statistics?.statusCounts?.['in-progress'] || 0}
+              </div>
+              <p className="text-xs text-muted-foreground">Being investigated</p>
+            </CardContent>
+          </Card>
+          
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Resolved</CardTitle>
+              <CheckCircle className="h-4 w-4 text-green-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-green-600">
+                {loading.statistics ? "..." : statistics?.statusCounts?.resolved || 0}
+              </div>
+              <p className="text-xs text-muted-foreground">Completed queries</p>
             </CardContent>
           </Card>
         </div>
 
-        {/* Service Type Distribution */}
-        <div className="grid gap-4 md:grid-cols-5">
-          {Object.entries(serviceTypeCounts).map(([type, count]) => {
-            if (count === 0) return null;
-            const Icon = serviceIcons[type];
-            return (
-              <Card key={type}>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium flex items-center gap-2">
-                    <Icon className="h-4 w-4" />
-                    {serviceTypeLabels[type]}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">{count}</div>
-                  <p className="text-xs text-muted-foreground">
-                    {typeCounts.service > 0 ? Math.round((count / typeCounts.service) * 100) : 0}% of service queries
-                  </p>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-
-        {/* Header with Filters and Actions */}
+        {/* Main Content */}
         <Card>
           <CardHeader>
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
               <div>
                 <CardTitle>Work Queries</CardTitle>
                 <CardDescription>
-                  Manage and track issues with employee tasks and facility services
+                  Manage and track issues with facility services
                 </CardDescription>
               </div>
               <div className="flex flex-wrap gap-2">
+                <Button variant="outline" onClick={handleRefresh} disabled={loading.queries}>
+                  <RefreshCw className={`h-4 w-4 mr-2 ${loading.queries ? 'animate-spin' : ''}`} />
+                  Refresh
+                </Button>
                 <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
                   <DialogTrigger asChild>
-                    <Button>
+                    <Button disabled={loading.creating}>
                       <Plus className="mr-2 h-4 w-4" />
                       New Query
                     </Button>
@@ -767,51 +529,14 @@ const WorkQuery = () => {
                   <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
                       <DialogTitle>Create New Work Query</DialogTitle>
+                      <DialogDescription>
+                        Report an issue with a facility service
+                      </DialogDescription>
                     </DialogHeader>
+                    
                     <form onSubmit={handleSubmitQuery} className="space-y-6">
-                      {/* Query Type Selection */}
-                      <div className="grid gap-4">
-                        <h3 className="text-lg font-semibold">Query Type</h3>
-                        
-                        <div className="grid grid-cols-2 gap-4">
-                          <div className={`p-4 border-2 rounded-lg cursor-pointer transition-colors ${
-                            newQuery.type === "task" 
-                              ? "border-purple-500 bg-purple-50" 
-                              : "border-gray-200 hover:border-gray-300"
-                          }`}
-                          onClick={() => setNewQuery(prev => ({ ...prev, type: "task", relatedId: "" }))}>
-                            <div className="flex items-center gap-3">
-                              <div className="p-2 bg-purple-100 rounded-lg">
-                                <User className="h-5 w-5 text-purple-600" />
-                              </div>
-                              <div>
-                                <div className="font-medium">Task Related</div>
-                                <div className="text-sm text-muted-foreground">Issues with employee assigned tasks</div>
-                              </div>
-                            </div>
-                          </div>
-                          
-                          <div className={`p-4 border-2 rounded-lg cursor-pointer transition-colors ${
-                            newQuery.type === "service" 
-                              ? "border-blue-500 bg-blue-50" 
-                              : "border-gray-200 hover:border-gray-300"
-                          }`}
-                          onClick={() => setNewQuery(prev => ({ ...prev, type: "service", relatedId: "" }))}>
-                            <div className="flex items-center gap-3">
-                              <div className="p-2 bg-blue-100 rounded-lg">
-                                <Sparkles className="h-5 w-5 text-blue-600" />
-                              </div>
-                              <div>
-                                <div className="font-medium">Service Related</div>
-                                <div className="text-sm text-muted-foreground">Issues with facility services</div>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
                       {/* Basic Information */}
-                      <div className="grid gap-4">
+                      <div className="space-y-4">
                         <h3 className="text-lg font-semibold">Query Details</h3>
                         
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -823,6 +548,7 @@ const WorkQuery = () => {
                               onChange={(e) => setNewQuery(prev => ({ ...prev, title: e.target.value }))}
                               placeholder="Brief description of the issue"
                               required
+                              disabled={loading.creating}
                             />
                           </div>
                           
@@ -831,15 +557,15 @@ const WorkQuery = () => {
                             <Select 
                               value={newQuery.category} 
                               onValueChange={(value) => setNewQuery(prev => ({ ...prev, category: value }))}
-                              required
+                              disabled={loading.creating}
                             >
                               <SelectTrigger>
                                 <SelectValue placeholder="Select category" />
                               </SelectTrigger>
                               <SelectContent>
                                 {categories.map(category => (
-                                  <SelectItem key={category} value={category}>
-                                    {categoryLabels[category]}
+                                  <SelectItem key={category.value} value={category.value}>
+                                    {category.label}
                                   </SelectItem>
                                 ))}
                               </SelectContent>
@@ -853,44 +579,37 @@ const WorkQuery = () => {
                             id="description"
                             value={newQuery.description}
                             onChange={(e) => setNewQuery(prev => ({ ...prev, description: e.target.value }))}
-                            placeholder="Provide detailed information about the issue, including specific problems, impact, and any relevant context..."
+                            placeholder="Provide detailed information about the issue..."
                             rows={4}
                             required
+                            disabled={loading.creating}
                           />
                         </div>
                       </div>
 
-                      {/* Related Item Selection */}
-                      <div className="grid gap-4">
-                        <h3 className="text-lg font-semibold">
-                          Related {newQuery.type === "task" ? "Task" : "Service"}
-                        </h3>
+                      {/* Service Selection */}
+                      <div className="space-y-4">
+                        <h3 className="text-lg font-semibold">Related Service</h3>
                         
                         <div className="space-y-2">
-                          <Label htmlFor="relatedItem">
-                            Select {newQuery.type === "task" ? "Task" : "Service"} *
-                          </Label>
+                          <Label htmlFor="service">Select Service *</Label>
                           <Select 
-                            value={newQuery.relatedId} 
-                            onValueChange={handleRelatedItemSelect}
-                            required
+                            value={newQuery.serviceId} 
+                            onValueChange={handleServiceSelect}
+                            disabled={loading.creating || loading.services}
                           >
                             <SelectTrigger>
-                              <SelectValue placeholder={`Choose ${newQuery.type === "task" ? "assigned task" : "facility service"}`} />
+                              <SelectValue placeholder="Choose a service">
+                                {selectedService ? selectedService.title : "Select a service"}
+                              </SelectValue>
                             </SelectTrigger>
                             <SelectContent>
-                              {getRelatedItems().map(item => (
-                                <SelectItem 
-                                  key={'taskId' in item ? item.taskId : item.serviceId} 
-                                  value={'taskId' in item ? item.taskId : item.serviceId}
-                                >
+                              {services.map(service => (
+                                <SelectItem key={service.serviceId} value={service.serviceId}>
                                   <div className="flex flex-col">
-                                    <span>{item.title}</span>
+                                    <span>{service.title}</span>
                                     <span className="text-xs text-muted-foreground">
-                                      {newQuery.type === "task" 
-                                        ? `Assigned to: ${(item as AssignedTask).assignedToName}`
-                                        : `Type: ${serviceTypeLabels[(item as FacilityService).type]}`
-                                      }
+                                      {service.serviceId} • {service.type}
                                     </span>
                                   </div>
                                 </SelectItem>
@@ -899,55 +618,62 @@ const WorkQuery = () => {
                           </Select>
                         </div>
 
-                        {/* Selected Item Details */}
-                        {getSelectedRelatedItem() && (
+                        {/* Selected Service Details */}
+                        {selectedService && (
                           <div className="p-4 border rounded-lg bg-gray-50">
-                            <Label className="font-semibold">Selected {newQuery.type === "task" ? "Task" : "Service"} Details</Label>
-                            <div className="mt-2 space-y-2 text-sm">
-                              <div><strong>Title:</strong> {getSelectedRelatedItem()?.title}</div>
-                              <div><strong>Description:</strong> {getSelectedRelatedItem()?.description}</div>
-                              {newQuery.type === "task" ? (
-                                <div><strong>Assigned To:</strong> {(getSelectedRelatedItem() as AssignedTask).assignedToName}</div>
-                              ) : (
-                                <div>
-                                  <strong>Service Type:</strong> 
-                                  <ServiceTypeBadge type={(getSelectedRelatedItem() as FacilityService).type} />
-                                </div>
-                              )}
+                            <div className="flex items-center justify-between mb-2">
+                              <Label className="font-semibold">Service Details</Label>
+                              <ServiceTypeBadge type={selectedService.type} />
+                            </div>
+                            <div className="space-y-2 text-sm">
+                              <div className="flex items-center gap-2">
+                                <MapPin className="h-3 w-3" />
+                                <span><strong>Location:</strong> {selectedService.location}</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <User className="h-3 w-3" />
+                                <span><strong>Assigned To:</strong> {selectedService.assignedToName}</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <Calendar className="h-3 w-3" />
+                                <span><strong>Schedule:</strong> {formatDate(selectedService.schedule)}</span>
+                              </div>
+                              <div>
+                                <strong>Description:</strong> {selectedService.description}
+                              </div>
                             </div>
                           </div>
                         )}
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="priority">Priority Level *</Label>
-                          <Select 
-                            value={newQuery.priority} 
-                            onValueChange={(value) => setNewQuery(prev => ({ ...prev, priority: value as any }))}
-                            required
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select priority" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="low">Low Priority</SelectItem>
-                              <SelectItem value="medium">Medium Priority</SelectItem>
-                              <SelectItem value="high">High Priority</SelectItem>
-                              <SelectItem value="critical">Critical Priority</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="priority">Priority Level *</Label>
+                        <Select 
+                          value={newQuery.priority} 
+                          onValueChange={(value) => setNewQuery(prev => ({ ...prev, priority: value as any }))}
+                          disabled={loading.creating}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select priority" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {priorities.map(priority => (
+                              <SelectItem key={priority.value} value={priority.value}>
+                                {priority.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
 
                       {/* File Upload Section */}
-                      <div className="grid gap-4">
+                      <div className="space-y-4">
                         <h3 className="text-lg font-semibold">Supporting Evidence</h3>
                         
                         <div className="border-2 border-dashed rounded-lg p-6 text-center">
                           <Upload className="mx-auto h-8 w-8 text-muted-foreground" />
                           <p className="mt-2 text-sm text-muted-foreground">
-                            Upload screenshots, photos, documents, or other proof (Max 5 files, 10MB each)
+                            Upload screenshots, photos, documents, or other proof (Max 10 files, 25MB each)
                           </p>
                           <Input
                             type="file"
@@ -955,11 +681,17 @@ const WorkQuery = () => {
                             onChange={handleFileUpload}
                             className="hidden"
                             id="file-upload"
-                            accept="image/*,video/*,.pdf,.doc,.docx,.txt"
+                            accept="image/*,video/*,.pdf,.doc,.docx,.txt,.xlsx,.xls"
+                            disabled={loading.creating}
                           />
                           <Label htmlFor="file-upload">
-                            <Button variant="outline" className="mt-4" asChild>
-                              <span>Choose Files</span>
+                            <Button 
+                              variant="outline" 
+                              className="mt-4" 
+                              type="button"
+                              disabled={loading.creating}
+                            >
+                              Choose Files
                             </Button>
                           </Label>
                         </div>
@@ -967,7 +699,7 @@ const WorkQuery = () => {
                         {/* Uploaded Files List */}
                         {uploadedFiles.length > 0 && (
                           <div className="space-y-3">
-                            <Label>Uploaded Files ({uploadedFiles.length}/5)</Label>
+                            <Label>Uploaded Files ({uploadedFiles.length}/10)</Label>
                             <div className="space-y-2">
                               {uploadedFiles.map((file, index) => (
                                 <FilePreview 
@@ -988,11 +720,16 @@ const WorkQuery = () => {
                           variant="outline" 
                           onClick={() => setIsDialogOpen(false)}
                           className="flex-1"
+                          disabled={loading.creating}
                         >
                           Cancel
                         </Button>
-                        <Button type="submit" className="flex-1">
-                          Submit Query
+                        <Button 
+                          type="submit" 
+                          className="flex-1"
+                          disabled={loading.creating}
+                        >
+                          {loading.creating ? "Creating..." : "Submit Query"}
                         </Button>
                       </div>
                     </form>
@@ -1001,6 +738,7 @@ const WorkQuery = () => {
               </div>
             </div>
           </CardHeader>
+          
           <CardContent>
             {/* Filters */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
@@ -1016,19 +754,7 @@ const WorkQuery = () => {
                   />
                 </div>
               </div>
-              <div className="space-y-2">
-                <Label>Type</Label>
-                <Select value={typeFilter} onValueChange={setTypeFilter}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="All Types" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Types</SelectItem>
-                    <SelectItem value="task">Task Related</SelectItem>
-                    <SelectItem value="service">Service Related</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              
               <div className="space-y-2">
                 <Label>Status</Label>
                 <Select value={statusFilter} onValueChange={setStatusFilter}>
@@ -1037,255 +763,314 @@ const WorkQuery = () => {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Status</SelectItem>
-                    <SelectItem value="pending">Pending</SelectItem>
-                    <SelectItem value="in-progress">In Progress</SelectItem>
-                    <SelectItem value="resolved">Resolved</SelectItem>
-                    <SelectItem value="rejected">Rejected</SelectItem>
+                    {statuses.map(status => (
+                      <SelectItem key={status.value} value={status.value}>
+                        {status.label}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
+              
+              <div className="space-y-2">
+                <Label>Service Type</Label>
+                <Select value={serviceTypeFilter} onValueChange={setServiceTypeFilter}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="All Types" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Types</SelectItem>
+                    {serviceTypes.map(type => (
+                      <SelectItem key={type.value} value={type.value}>
+                        {type.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              
               <div className="space-y-2">
                 <Label>Actions</Label>
-                <Button variant="outline" className="w-full" onClick={() => {
-                  setSearchTerm("");
-                  setStatusFilter("all");
-                  setPriorityFilter("all");
-                  setTypeFilter("all");
-                }}>
+                <Button 
+                  variant="outline" 
+                  className="w-full" 
+                  onClick={() => {
+                    setSearchTerm("");
+                    setStatusFilter("all");
+                    setPriorityFilter("all");
+                    setServiceTypeFilter("all");
+                  }}
+                >
+                  <Filter className="h-4 w-4 mr-2" />
                   Clear Filters
                 </Button>
               </div>
             </div>
 
             {/* Queries Table */}
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Query ID</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Title</TableHead>
-                  <TableHead>Related To</TableHead>
-                  <TableHead>Assigned To</TableHead>
-                  <TableHead>Category</TableHead>
-                  <TableHead>Priority</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Created</TableHead>
-                  <TableHead>Proof Files</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredQueries.map((query) => (
-                  <TableRow key={query.id}>
-                    <TableCell className="font-medium">{query.queryId}</TableCell>
-                    <TableCell>
-                      <QueryTypeBadge type={query.type} />
-                      {query.serviceType && (
-                        <div className="mt-1">
-                          <ServiceTypeBadge type={query.serviceType} />
-                        </div>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <div className="max-w-xs">
-                        <div className="font-medium truncate">{query.title}</div>
-                        <div className="text-xs text-muted-foreground truncate">
-                          {query.description.substring(0, 50)}...
-                        </div>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="max-w-xs">
-                        <div className="font-medium text-sm">{query.relatedTo}</div>
-                        <div className="text-xs text-muted-foreground">{query.relatedId}</div>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      {query.type === "task" ? (
-                        <div className="flex items-center gap-2">
-                          <User className="h-4 w-4 text-muted-foreground" />
-                          <div>
-                            <div className="font-medium text-sm">{query.employeeName}</div>
-                            <div className="text-xs text-muted-foreground">{query.employeeId}</div>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-2">
-                          <Sparkles className="h-4 w-4 text-muted-foreground" />
-                          <div>
-                            <div className="font-medium text-sm">{query.serviceStaffName}</div>
-                            <div className="text-xs text-muted-foreground">{query.serviceStaffId}</div>
-                          </div>
-                        </div>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline">
-                        {categoryLabels[query.category]}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <PriorityBadge priority={query.priority} />
-                    </TableCell>
-                    <TableCell>
-                      <StatusBadge status={query.status} />
-                    </TableCell>
-                    <TableCell>
-                      <div className="text-sm">
-                        {new Date(query.createdAt).toLocaleDateString()}
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        {new Date(query.createdAt).toLocaleTimeString()}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1">
-                        <Paperclip className="h-4 w-4 text-muted-foreground" />
-                        <span className="text-sm">{query.proofFiles.length}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Dialog>
-                        <DialogTrigger asChild>
-                          <Button size="sm" variant="outline">
-                            <Eye className="h-3 w-3" />
-                          </Button>
-                        </DialogTrigger>
-                        <DialogContent className="max-w-4xl">
-                          <DialogHeader>
-                            <DialogTitle>Query Details - {query.queryId}</DialogTitle>
-                          </DialogHeader>
-                          <div className="space-y-6">
-                            {/* Query Information */}
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              <div>
-                                <Label className="font-semibold">Query Type</Label>
-                                <div className="mt-1">
-                                  <QueryTypeBadge type={query.type} />
-                                </div>
-                              </div>
-                              <div>
-                                <Label className="font-semibold">Category</Label>
-                                <Badge className="mt-1">{categoryLabels[query.category]}</Badge>
-                              </div>
-                              <div>
-                                <Label className="font-semibold">Priority</Label>
-                                <div className="mt-1">
-                                  <PriorityBadge priority={query.priority} />
-                                </div>
-                              </div>
-                              <div>
-                                <Label className="font-semibold">Status</Label>
-                                <div className="mt-1">
-                                  <StatusBadge status={query.status} />
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Related Item Information */}
-                            <div>
-                              <Label className="font-semibold">
-                                Related {query.type === "task" ? "Task" : "Service"}
-                              </Label>
-                              <div className="mt-1 p-3 border rounded-lg">
-                                <div className="font-medium">{query.relatedTo}</div>
-                                <div className="text-sm text-muted-foreground">ID: {query.relatedId}</div>
-                                {query.serviceType && (
-                                  <div className="mt-2">
-                                    <ServiceTypeBadge type={query.serviceType} />
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-
-                            {/* Assigned To Information */}
-                            <div>
-                              <Label className="font-semibold">
-                                {query.type === "task" ? "Assigned Employee" : "Service Staff"}
-                              </Label>
-                              <div className="flex items-center gap-2 mt-1 p-3 border rounded-lg">
-                                {query.type === "task" ? (
-                                  <>
-                                    <User className="h-4 w-4" />
-                                    <div>
-                                      <div className="font-medium">{query.employeeName}</div>
-                                      <div className="text-sm text-muted-foreground">{query.employeeId}</div>
-                                    </div>
-                                  </>
-                                ) : (
-                                  <>
-                                    <Sparkles className="h-4 w-4" />
-                                    <div>
-                                      <div className="font-medium">{query.serviceStaffName}</div>
-                                      <div className="text-sm text-muted-foreground">{query.serviceStaffId}</div>
-                                    </div>
-                                  </>
-                                )}
-                              </div>
-                            </div>
-
-                            {/* Description */}
-                            <div>
-                              <Label className="font-semibold">Description</Label>
-                              <p className="mt-1 text-sm whitespace-pre-wrap">{query.description}</p>
-                            </div>
-
-                            {/* Proof Files */}
-                            {query.proofFiles.length > 0 && (
-                              <div>
-                                <Label className="font-semibold">Supporting Evidence</Label>
-                                <div className="grid gap-2 mt-2">
-                                  {query.proofFiles.map((file) => (
-                                    <div key={file.id} className="flex items-center justify-between p-3 border rounded-lg">
-                                      <div className="flex items-center gap-3">
-                                        <div className="p-2 bg-gray-100 rounded-lg">
-                                          <FileIcon type={file.type} />
-                                        </div>
-                                        <div>
-                                          <div className="font-medium">{file.name}</div>
-                                          <div className="text-xs text-muted-foreground">
-                                            {file.size} • {file.type} • {new Date(file.uploadDate).toLocaleDateString()}
-                                          </div>
-                                        </div>
-                                      </div>
-                                      <Button size="sm" variant="outline">
-                                        Download
-                                      </Button>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Superadmin Response */}
-                            {query.superadminResponse && (
-                              <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
-                                <Label className="font-semibold text-blue-900">Superadmin Response</Label>
-                                <p className="mt-1 text-sm text-blue-800 whitespace-pre-wrap">
-                                  {query.superadminResponse}
-                                </p>
-                                {query.responseDate && (
-                                  <div className="text-xs text-blue-600 mt-2">
-                                    Responded on: {new Date(query.responseDate).toLocaleString()}
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        </DialogContent>
-                      </Dialog>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-
-            {filteredQueries.length === 0 && (
-              <div className="text-center py-8 text-muted-foreground">
-                <MessageCircle className="h-12 w-12 mx-auto mb-4" />
-                <h3 className="text-lg font-medium">No queries found</h3>
-                <p>No work queries match your current filters.</p>
+            {loading.queries ? (
+              <div className="text-center py-12">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+                <p className="mt-4 text-muted-foreground">Loading work queries...</p>
               </div>
+            ) : filteredQueries.length === 0 ? (
+              <div className="text-center py-12 border rounded-lg">
+                <MessageCircle className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+                <h3 className="text-lg font-medium">No queries found</h3>
+                <p className="text-muted-foreground">
+                  {searchTerm || statusFilter !== 'all' || priorityFilter !== 'all' 
+                    ? "No work queries match your current filters." 
+                    : "No work queries have been created yet."}
+                </p>
+              </div>
+            ) : (
+              <>
+                <div className="rounded-md border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Query ID</TableHead>
+                        <TableHead>Title</TableHead>
+                        <TableHead>Service</TableHead>
+                        <TableHead>Category</TableHead>
+                        <TableHead>Priority</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Created</TableHead>
+                        <TableHead>Files</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredQueries.map((query) => (
+                        <TableRow key={query._id}>
+                          <TableCell className="font-mono text-sm">
+                            {query.queryId}
+                          </TableCell>
+                          <TableCell>
+                            <div className="max-w-xs">
+                              <div className="font-medium truncate">{query.title}</div>
+                              <div className="text-xs text-muted-foreground truncate">
+                                {query.description.substring(0, 50)}...
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="max-w-xs">
+                              <div className="font-medium text-sm">{query.serviceTitle || query.serviceId}</div>
+                              {query.serviceType && (
+                                <TableServiceTypeBadge type={query.serviceType} />
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline">
+                              {categories.find(c => c.value === query.category)?.label || query.category}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <PriorityBadge priority={query.priority} />
+                          </TableCell>
+                          <TableCell>
+                            <StatusBadge status={query.status} />
+                          </TableCell>
+                          <TableCell>
+                            <div className="text-sm">
+                              {formatDate(query.createdAt)}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-1">
+                              <Paperclip className="h-4 w-4 text-muted-foreground" />
+                              <span className="text-sm">{query.proofFiles.length}</span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Dialog>
+                              <DialogTrigger asChild>
+                                <Button size="sm" variant="outline">
+                                  <Eye className="h-3 w-3 mr-1" />
+                                  View
+                                </Button>
+                              </DialogTrigger>
+                              <DialogContent className="max-w-4xl">
+                                <DialogHeader>
+                                  <DialogTitle>Query Details - {query.queryId}</DialogTitle>
+                                </DialogHeader>
+                                <div className="space-y-6">
+                                  {/* Query Information */}
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                      <Label className="font-semibold">Title</Label>
+                                      <p className="mt-1">{query.title}</p>
+                                    </div>
+                                    <div>
+                                      <Label className="font-semibold">Category</Label>
+                                      <Badge className="mt-1">
+                                        {categories.find(c => c.value === query.category)?.label || query.category}
+                                      </Badge>
+                                    </div>
+                                    <div>
+                                      <Label className="font-semibold">Priority</Label>
+                                      <div className="mt-1">
+                                        <PriorityBadge priority={query.priority} />
+                                      </div>
+                                    </div>
+                                    <div>
+                                      <Label className="font-semibold">Status</Label>
+                                      <div className="mt-1">
+                                        <StatusBadge status={query.status} />
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {/* Description */}
+                                  <div>
+                                    <Label className="font-semibold">Description</Label>
+                                    <p className="mt-1 text-sm whitespace-pre-wrap bg-gray-50 p-3 rounded-lg">
+                                      {query.description}
+                                    </p>
+                                  </div>
+
+                                  {/* Service Information */}
+                                  <div>
+                                    <Label className="font-semibold">Service Information</Label>
+                                    <div className="mt-1 p-3 border rounded-lg">
+                                      <div className="font-medium">{query.serviceTitle || query.serviceId}</div>
+                                      {query.serviceType && (
+                                        <div className="mt-2">
+                                          <TableServiceTypeBadge type={query.serviceType} />
+                                        </div>
+                                      )}
+                                      {query.serviceStaffName && (
+                                        <div className="mt-2 text-sm">
+                                          <strong>Service Staff:</strong> {query.serviceStaffName}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  {/* Proof Files */}
+                                  {query.proofFiles.length > 0 && (
+                                    <div>
+                                      <Label className="font-semibold">Supporting Evidence</Label>
+                                      <div className="grid gap-2 mt-2">
+                                        {query.proofFiles.map((file, index) => (
+                                          <div key={index} className="flex items-center justify-between p-3 border rounded-lg">
+                                            <div className="flex items-center gap-3">
+                                              <div className="p-2 bg-gray-100 rounded-lg">
+                                                <FileIcon type={file.type} />
+                                              </div>
+                                              <div>
+                                                <div className="font-medium">{file.name}</div>
+                                                <div className="text-xs text-muted-foreground">
+                                                  {file.size} • {file.type} • {formatDate(file.uploadDate)}
+                                                </div>
+                                              </div>
+                                            </div>
+                                            <div className="flex gap-2">
+                                              <Button 
+                                                size="sm" 
+                                                variant="outline"
+                                                onClick={() => previewFile(file.url)}
+                                              >
+                                                <Eye className="h-3 w-3 mr-1" />
+                                                View
+                                              </Button>
+                                              <Button 
+                                                size="sm" 
+                                                variant="outline"
+                                                onClick={() => downloadFile(file.url, file.name)}
+                                              >
+                                                <Download className="h-3 w-3 mr-1" />
+                                                Download
+                                              </Button>
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* Superadmin Response */}
+                                  {query.superadminResponse && (
+                                    <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+                                      <Label className="font-semibold text-blue-900">Superadmin Response</Label>
+                                      <p className="mt-1 text-sm text-blue-800 whitespace-pre-wrap">
+                                        {query.superadminResponse}
+                                      </p>
+                                      {query.responseDate && (
+                                        <div className="text-xs text-blue-600 mt-2">
+                                          Responded on: {formatDate(query.responseDate)}
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {/* Created Info */}
+                                  <div className="text-sm text-muted-foreground">
+                                    Created by {query.reportedBy.name} on {formatDate(query.createdAt)}
+                                  </div>
+                                </div>
+                              </DialogContent>
+                            </Dialog>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+
+                {/* Pagination */}
+                {pagination.totalPages > 1 && (
+                  <div className="flex items-center justify-between mt-6">
+                    <div className="text-sm text-muted-foreground">
+                      Showing {((pagination.page - 1) * pagination.limit) + 1} to {Math.min(pagination.page * pagination.limit, pagination.total)} of {pagination.total} queries
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => changePage(pagination.page - 1)}
+                        disabled={pagination.page === 1}
+                      >
+                        Previous
+                      </Button>
+                      <div className="flex items-center gap-1">
+                        {Array.from({ length: Math.min(5, pagination.totalPages) }, (_, i) => {
+                          let pageNum;
+                          if (pagination.totalPages <= 5) {
+                            pageNum = i + 1;
+                          } else if (pagination.page <= 3) {
+                            pageNum = i + 1;
+                          } else if (pagination.page >= pagination.totalPages - 2) {
+                            pageNum = pagination.totalPages - 4 + i;
+                          } else {
+                            pageNum = pagination.page - 2 + i;
+                          }
+                          return (
+                            <Button
+                              key={pageNum}
+                              variant={pagination.page === pageNum ? "default" : "outline"}
+                              size="sm"
+                              onClick={() => changePage(pageNum)}
+                            >
+                              {pageNum}
+                            </Button>
+                          );
+                        })}
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => changePage(pagination.page + 1)}
+                        disabled={pagination.page === pagination.totalPages}
+                      >
+                        Next
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </CardContent>
         </Card>
@@ -1294,4 +1079,4 @@ const WorkQuery = () => {
   );
 };
 
-export default WorkQuery;
+export default WorkQueryPage;

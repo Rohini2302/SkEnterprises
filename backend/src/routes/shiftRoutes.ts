@@ -1,24 +1,24 @@
-import express from 'express';
+import { Router } from 'express';
 import {
-  getAllShifts,
-  getShiftById,
+  getShifts,
+  getShift,
   createShift,
   updateShift,
   deleteShift,
   assignEmployeeToShift,
   removeEmployeeFromShift,
+  getShiftStats
 } from '../controllers/shiftController';
 
-const router = express.Router();
+const router = Router();
 
 // Shift routes
-router.get('/', getAllShifts);
-router.get('/:id', getShiftById);
+router.get('/', getShifts);
+router.get('/stats', getShiftStats);
+router.get('/:id', getShift);
 router.post('/', createShift);
 router.put('/:id', updateShift);
 router.delete('/:id', deleteShift);
-
-// Employee assignment routes
 router.post('/:id/assign', assignEmployeeToShift);
 router.post('/:id/remove', removeEmployeeFromShift);
 

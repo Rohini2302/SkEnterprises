@@ -1,3 +1,4 @@
+
 import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IExpense extends Document {
@@ -115,3 +116,4 @@ ExpenseSchema.index({ date: 1 });
 ExpenseSchema.index({ vendor: 1 });
 
 export default mongoose.model<IExpense>('Expense', ExpenseSchema);
+

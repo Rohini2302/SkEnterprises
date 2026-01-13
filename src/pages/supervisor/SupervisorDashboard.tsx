@@ -25,7 +25,8 @@ import {
   Coffee,
   Timer,
   UserCheck,
-  ClipboardCheck
+  ClipboardCheck,
+  AlertCircle
 } from "lucide-react";
 
 // Define types for the data
@@ -76,11 +77,38 @@ interface AttendanceStatus {
   breakTime: number;
 }
 
+interface SupervisorAttendanceRecord {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  supervisorId: string;
+  date: string;
+  checkInTime: string | null;
+  checkOutTime: string | null;
+  breakStartTime: string | null;
+  breakEndTime: string | null;
+  totalHours: number;
+  breakTime: number;
+  status: string;
+  shift: string;
+  hours: number;
+}
+
 interface OutletContext {
   onMenuClick: () => void;
 }
 
-// Mock data generators
+// API base URL - MAKE SURE THIS MATCHES YOUR BACKEND PORT
+const API_BASE_URL = 'http://localhost:5001/api';
+
+// Current employee info (in a real app, this would come from auth context)
+const currentEmployee = {
+  id: 'supervisor-001',
+  name: 'Supervisor User',
+  supervisorId: 'supervisor-001',
+};
+
+// Mock data generators (YOUR EXISTING CODE - UNCHANGED)
 const generateMockStats = (): DashboardStats => ({
   totalEmployees: 24,
   assignedTasks: 45,
@@ -99,7 +127,7 @@ const generateMockActivities = (): Activity[] => [
     message: 'Completed monthly sales report',
     employee: 'John Doe',
     priority: 'high',
-    timestamp: new Date(Date.now() - 1000 * 60 * 30).toISOString() // 30 minutes ago
+    timestamp: new Date(Date.now() - 1000 * 60 * 30).toISOString()
   },
   {
     id: '2',
@@ -107,7 +135,7 @@ const generateMockActivities = (): Activity[] => [
     message: 'Requested leave approval',
     employee: 'Sarah Smith',
     priority: 'medium',
-    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString() // 2 hours ago
+    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString()
   },
   {
     id: '3',
@@ -115,15 +143,7 @@ const generateMockActivities = (): Activity[] => [
     message: 'Finished project documentation',
     employee: 'Mike Johnson',
     priority: 'low',
-    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 5).toISOString() // 5 hours ago
-  },
-  {
-    id: '4',
-    type: 'checkin',
-    message: 'Checked in for the day',
-    employee: 'You',
-    priority: 'medium',
-    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 8).toISOString() // 8 hours ago
+    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 5).toISOString()
   }
 ];
 
@@ -191,6 +211,7 @@ const SupervisorDashboard = () => {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const [apiStatus, setApiStatus] = useState<string>('');
   
   // Attendance state with proper initial values
   const [attendance, setAttendance] = useState<AttendanceStatus>({
@@ -204,17 +225,21 @@ const SupervisorDashboard = () => {
     breakTime: 0
   });
 
+  // Supervisor attendance records state
+  const [supervisorAttendanceRecords, setSupervisorAttendanceRecords] = useState<SupervisorAttendanceRecord[]>([]);
+
   // Fetch all data
   useEffect(() => {
     loadData();
     loadAttendanceStatus();
+    loadSupervisorAttendanceRecords();
   }, []);
 
   const loadData = async () => {
     setLoading(true);
     try {
       // Use mock data instead of API calls
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate API delay
+      await new Promise(resolve => setTimeout(resolve, 1000));
       
       setStats(generateMockStats());
       setActivities(generateMockActivities());
@@ -233,98 +258,460 @@ const SupervisorDashboard = () => {
     }
   };
 
-  // Load attendance status from localStorage
+  // Load attendance status from backend API
   const loadAttendanceStatus = async () => {
     try {
-      // Try to load from localStorage first
+      console.log('🔄 Loading attendance status from API...');
+      setApiStatus('Loading attendance status...');
+      
+      const response = await fetch(`${API_BASE_URL}/attendance/status/${currentEmployee.id}`);
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('📊 API Response data:', data);
+        
+        if (data.success && data.data) {
+          const apiAttendance = data.data;
+          const newAttendance = {
+            isCheckedIn: apiAttendance.isCheckedIn || false,
+            isOnBreak: apiAttendance.isOnBreak || false,
+            checkInTime: apiAttendance.checkInTime || null,
+            checkOutTime: apiAttendance.checkOutTime || null, // Will be null if not checked out yet
+            breakStartTime: apiAttendance.breakStartTime || null,
+            breakEndTime: apiAttendance.breakEndTime || null,
+            totalHours: Number(apiAttendance.totalHours) || 0,
+            breakTime: Number(apiAttendance.breakTime) || 0,
+          };
+          
+          setAttendance(newAttendance);
+          localStorage.setItem('supervisorAttendance', JSON.stringify(newAttendance));
+          console.log('✅ Attendance loaded from API');
+          setApiStatus('');
+          return;
+        }
+      } else {
+        console.log('⚠️ API failed, using localStorage');
+        setApiStatus('API connection failed, using local data');
+      }
+      
+      // Fallback to localStorage if API fails
       const savedAttendance = localStorage.getItem('supervisorAttendance');
       if (savedAttendance) {
         const parsedAttendance = JSON.parse(savedAttendance);
-        // Ensure numeric values
         setAttendance({
           ...parsedAttendance,
           totalHours: Number(parsedAttendance.totalHours) || 0,
-          breakTime: Number(parsedAttendance.breakTime) || 0
+          breakTime: Number(parsedAttendance.breakTime) || 0,
         });
+        console.log('📁 Attendance loaded from localStorage');
+        setApiStatus('Using local data');
       }
     } catch (error) {
-      console.error('Error loading attendance status:', error);
+      console.error('❌ Error loading attendance status:', error);
+      setApiStatus('Error loading attendance data');
+      // Fallback to localStorage
+      const savedAttendance = localStorage.getItem('supervisorAttendance');
+      if (savedAttendance) {
+        const parsedAttendance = JSON.parse(savedAttendance);
+        setAttendance({
+          ...parsedAttendance,
+          totalHours: Number(parsedAttendance.totalHours) || 0,
+          breakTime: Number(parsedAttendance.breakTime) || 0,
+        });
+      }
     }
   };
 
-  // Save attendance status
+  // Load supervisor attendance records from MongoDB
+  const loadSupervisorAttendanceRecords = async () => {
+    try {
+      console.log('🔄 Loading supervisor attendance history...');
+      
+      // Use the history endpoint to get all records
+      const response = await fetch(`${API_BASE_URL}/attendance/history?employeeId=${currentEmployee.id}`);
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('📊 Supervisor attendance history response:', data);
+        
+        if (data.success && Array.isArray(data.data)) {
+          // Convert API data to expected format
+          const records = data.data.map((record: any, index: number) => {
+            // Determine status based on actual data
+            let status = "Absent";
+            if (record.checkInTime && record.checkOutTime) {
+              status = "Present";
+            } else if (record.checkInTime && !record.checkOutTime) {
+              status = "In Progress";
+            } else if (record.status === "Weekly Off") {
+              status = "Weekly Off";
+            }
+            
+            // Get date from record
+            const recordDate = record.date ? record.date : 
+                             new Date(Date.now() - index * 86400000).toISOString().split('T')[0];
+            
+            return {
+              id: record._id || `record-${index}`,
+              employeeId: record.employeeId || currentEmployee.id,
+              employeeName: record.employeeName || currentEmployee.name,
+              supervisorId: record.supervisorId || currentEmployee.supervisorId,
+              date: recordDate,
+              checkInTime: record.checkInTime ? formatTimeForDisplay(record.checkInTime) : "-",
+              checkOutTime: record.checkOutTime ? formatTimeForDisplay(record.checkOutTime) : "-",
+              breakStartTime: record.breakStartTime || null,
+              breakEndTime: record.breakEndTime || null,
+              totalHours: Number(record.totalHours) || 0,
+              breakTime: Number(record.breakTime) || 0,
+              status: status,
+              shift: "Supervisor Shift",
+              hours: Number(record.totalHours) || 0
+            };
+          });
+          
+          // Sort by date (newest first)
+          records.sort((a: SupervisorAttendanceRecord, b: SupervisorAttendanceRecord) => 
+            new Date(b.date).getTime() - new Date(a.date).getTime()
+          );
+          
+          setSupervisorAttendanceRecords(records);
+          console.log(`✅ Loaded ${records.length} supervisor attendance records`);
+        } else {
+          console.log('⚠️ No history data available, creating sample data');
+          createSampleAttendanceRecords();
+        }
+      } else {
+        console.log('⚠️ History endpoint failed, creating sample data');
+        createSampleAttendanceRecords();
+      }
+    } catch (error) {
+      console.error('❌ Error loading supervisor attendance history:', error);
+      createSampleAttendanceRecords();
+    }
+  };
+
+  // Helper function for fallback data
+  const createSampleAttendanceRecords = () => {
+    const today = new Date().toISOString().split('T')[0];
+    const sampleRecords: SupervisorAttendanceRecord[] = [
+      {
+        id: "today",
+        employeeId: currentEmployee.id,
+        employeeName: currentEmployee.name,
+        supervisorId: currentEmployee.supervisorId,
+        date: today,
+        checkInTime: attendance.checkInTime ? formatTimeForDisplay(attendance.checkInTime) : "-",
+        checkOutTime: attendance.checkOutTime ? formatTimeForDisplay(attendance.checkOutTime) : "-", // Will be "-" if not checked out
+        breakStartTime: attendance.breakStartTime,
+        breakEndTime: attendance.breakEndTime,
+        totalHours: attendance.totalHours || 0,
+        breakTime: attendance.breakTime || 0,
+        status: attendance.isCheckedIn ? 
+               (attendance.checkOutTime ? "Present" : "In Progress") : 
+               "Absent",
+        shift: "Supervisor Shift",
+        hours: attendance.totalHours || 0
+      },
+      {
+        id: "1",
+        employeeId: currentEmployee.id,
+        employeeName: currentEmployee.name,
+        supervisorId: currentEmployee.supervisorId,
+        date: new Date(Date.now() - 86400000).toISOString().split('T')[0],
+        checkInTime: "08:45 AM",
+        checkOutTime: "05:15 PM",
+        breakStartTime: null,
+        breakEndTime: null,
+        totalHours: 8.5,
+        breakTime: 0.5,
+        status: "Present",
+        shift: "Supervisor Shift",
+        hours: 8.5
+      },
+      {
+        id: "2",
+        employeeId: currentEmployee.id,
+        employeeName: currentEmployee.name,
+        supervisorId: currentEmployee.supervisorId,
+        date: new Date(Date.now() - 2 * 86400000).toISOString().split('T')[0],
+        checkInTime: "09:00 AM",
+        checkOutTime: "04:30 PM",
+        breakStartTime: null,
+        breakEndTime: null,
+        totalHours: 7.5,
+        breakTime: 0.5,
+        status: "Present",
+        shift: "Supervisor Shift",
+        hours: 7.5
+      },
+      {
+        id: "3",
+        employeeId: currentEmployee.id,
+        employeeName: currentEmployee.name,
+        supervisorId: currentEmployee.supervisorId,
+        date: new Date(Date.now() - 3 * 86400000).toISOString().split('T')[0],
+        checkInTime: "-",
+        checkOutTime: "-",
+        breakStartTime: null,
+        breakEndTime: null,
+        totalHours: 0,
+        breakTime: 0,
+        status: "Absent",
+        shift: "Supervisor Shift",
+        hours: 0
+      }
+    ];
+    
+    setSupervisorAttendanceRecords(sampleRecords);
+  };
+
+  // Save attendance status to both localStorage and update local state
   const saveAttendanceStatus = (newAttendance: AttendanceStatus) => {
-    // Ensure numeric values before saving
     const sanitizedAttendance = {
       ...newAttendance,
       totalHours: Number(newAttendance.totalHours) || 0,
-      breakTime: Number(newAttendance.breakTime) || 0
+      breakTime: Number(newAttendance.breakTime) || 0,
     };
     
     setAttendance(sanitizedAttendance);
     localStorage.setItem('supervisorAttendance', JSON.stringify(sanitizedAttendance));
   };
 
-  // Attendance handlers
-  const handleCheckIn = () => {
-    const now = new Date().toISOString();
-    const newAttendance = {
-      ...attendance,
-      isCheckedIn: true,
-      checkInTime: now,
-      checkOutTime: null
-    };
-    saveAttendanceStatus(newAttendance);
-    
-    // Add activity
-    addActivity('checkin', `Checked in at ${formatTimeForDisplay(now)}`);
+  // Attendance handlers with backend API integration
+  const handleCheckIn = async () => {
+    try {
+      console.log('🔄 Attempting check-in...');
+      
+      const payload = {
+        employeeId: currentEmployee.id,
+        employeeName: currentEmployee.name,
+        supervisorId: currentEmployee.supervisorId,
+      };
+      
+      const response = await fetch(`${API_BASE_URL}/attendance/checkin`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json();
+      
+      if (response.ok && data.success) {
+        const now = new Date().toISOString();
+        const newAttendance = {
+          ...attendance,
+          isCheckedIn: true,
+          checkInTime: now,
+          checkOutTime: null, // Reset checkout time when checking in
+        };
+        
+        // Update local state
+        saveAttendanceStatus(newAttendance);
+        
+        // Add activity
+        addActivity('checkin', `Checked in at ${formatTimeForDisplay(now)}`);
+        
+        // Reload supervisor records
+        loadSupervisorAttendanceRecords();
+        
+        // Show success message
+        alert('✅ Successfully checked in!');
+      } else {
+        throw new Error(data.message || 'Failed to check in');
+      }
+    } catch (error: any) {
+      console.error('❌ Check-in error:', error);
+      alert(`❌ Check-in failed: ${error.message}`);
+      
+      // Fallback: Update local state only
+      const now = new Date().toISOString();
+      const newAttendance = {
+        ...attendance,
+        isCheckedIn: true,
+        checkInTime: now,
+        checkOutTime: null, // Reset checkout time
+      };
+      saveAttendanceStatus(newAttendance);
+      addActivity('checkin', `Checked in at ${formatTimeForDisplay(now)} (Offline)`);
+    }
   };
 
-  const handleCheckOut = () => {
-    const now = new Date().toISOString();
-    const totalHours = calculateTotalHours(attendance.checkInTime, now);
-    
-    const newAttendance = {
-      ...attendance,
-      isCheckedIn: false,
-      isOnBreak: false,
-      checkOutTime: now,
-      totalHours: totalHours
-    };
-    saveAttendanceStatus(newAttendance);
-    
-    // Add activity
-    addActivity('checkout', `Checked out at ${formatTimeForDisplay(now)} - Total: ${totalHours.toFixed(2)}h`);
+  const handleCheckOut = async () => {
+    try {
+      console.log('🔄 Attempting check-out...');
+      
+      const payload = {
+        employeeId: currentEmployee.id,
+      };
+      
+      const response = await fetch(`${API_BASE_URL}/attendance/checkout`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json();
+      
+      if (response.ok && data.success) {
+        const now = new Date().toISOString();
+        const totalHours = calculateTotalHours(attendance.checkInTime, now);
+        
+        const newAttendance = {
+          ...attendance,
+          isCheckedIn: false,
+          isOnBreak: false,
+          checkOutTime: now, // Set actual checkout time
+          totalHours: totalHours,
+        };
+        
+        // Update local state
+        saveAttendanceStatus(newAttendance);
+        
+        // Add activity
+        addActivity('checkout', `Checked out at ${formatTimeForDisplay(now)} - Total: ${totalHours.toFixed(2)}h`);
+        
+        // Reload supervisor records
+        loadSupervisorAttendanceRecords();
+        
+        // Show success message
+        alert(`✅ Successfully checked out! Total hours: ${totalHours.toFixed(2)}`);
+      } else {
+        throw new Error(data.message || 'Failed to check out');
+      }
+    } catch (error: any) {
+      console.error('❌ Check-out error:', error);
+      alert(`❌ Check-out failed: ${error.message}`);
+      
+      // Fallback: Update local state only
+      const now = new Date().toISOString();
+      const totalHours = calculateTotalHours(attendance.checkInTime, now);
+      const newAttendance = {
+        ...attendance,
+        isCheckedIn: false,
+        isOnBreak: false,
+        checkOutTime: now, // Set actual checkout time
+        totalHours: totalHours,
+      };
+      saveAttendanceStatus(newAttendance);
+      addActivity('checkout', `Checked out at ${formatTimeForDisplay(now)} - Total: ${totalHours.toFixed(2)}h (Offline)`);
+    }
   };
 
-  const handleBreakIn = () => {
-    const now = new Date().toISOString();
-    const newAttendance = {
-      ...attendance,
-      isOnBreak: true,
-      breakStartTime: now
-    };
-    saveAttendanceStatus(newAttendance);
-    
-    // Add activity
-    addActivity('break', `Started break at ${formatTimeForDisplay(now)}`);
+  const handleBreakIn = async () => {
+    try {
+      console.log('🔄 Attempting break-in...');
+      
+      const payload = {
+        employeeId: currentEmployee.id,
+      };
+      
+      const response = await fetch(`${API_BASE_URL}/attendance/breakin`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json();
+      
+      if (response.ok && data.success) {
+        const now = new Date().toISOString();
+        const newAttendance = {
+          ...attendance,
+          isOnBreak: true,
+          breakStartTime: now,
+        };
+        
+        // Update local state
+        saveAttendanceStatus(newAttendance);
+        
+        // Add activity
+        addActivity('break', `Started break at ${formatTimeForDisplay(now)}`);
+        
+        // Show success message
+        alert('✅ Break started!');
+      } else {
+        throw new Error(data.message || 'Failed to start break');
+      }
+    } catch (error: any) {
+      console.error('❌ Break-in error:', error);
+      alert(`❌ Break-in failed: ${error.message}`);
+      
+      // Fallback: Update local state only
+      const now = new Date().toISOString();
+      const newAttendance = {
+        ...attendance,
+        isOnBreak: true,
+        breakStartTime: now,
+      };
+      saveAttendanceStatus(newAttendance);
+      addActivity('break', `Started break at ${formatTimeForDisplay(now)} (Offline)`);
+    }
   };
 
-  const handleBreakOut = () => {
-    const now = new Date().toISOString();
-    const breakTime = calculateBreakTime(attendance.breakStartTime, now);
-    const totalBreakTime = (Number(attendance.breakTime) || 0) + breakTime;
-    
-    const newAttendance = {
-      ...attendance,
-      isOnBreak: false,
-      breakEndTime: now,
-      breakTime: totalBreakTime
-    };
-    saveAttendanceStatus(newAttendance);
-    
-    // Add activity
-    addActivity('break', `Ended break at ${formatTimeForDisplay(now)} - Duration: ${breakTime.toFixed(2)}h`);
+  const handleBreakOut = async () => {
+    try {
+      console.log('🔄 Attempting break-out...');
+      
+      const payload = {
+        employeeId: currentEmployee.id,
+      };
+      
+      const response = await fetch(`${API_BASE_URL}/attendance/breakout`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json();
+      
+      if (response.ok && data.success) {
+        const now = new Date().toISOString();
+        const breakTime = calculateBreakTime(attendance.breakStartTime, now);
+        const totalBreakTime = (Number(attendance.breakTime) || 0) + breakTime;
+        
+        const newAttendance = {
+          ...attendance,
+          isOnBreak: false,
+          breakEndTime: now,
+          breakTime: totalBreakTime,
+        };
+        
+        // Update local state
+        saveAttendanceStatus(newAttendance);
+        
+        // Add activity
+        addActivity('break', `Ended break at ${formatTimeForDisplay(now)} - Duration: ${breakTime.toFixed(2)}h`);
+        
+        // Show success message
+        alert(`✅ Break ended! Duration: ${breakTime.toFixed(2)} hours.`);
+      } else {
+        throw new Error(data.message || 'Failed to end break');
+      }
+    } catch (error: any) {
+      console.error('❌ Break-out error:', error);
+      alert(`❌ Break-out failed: ${error.message}`);
+      
+      // Fallback: Update local state only
+      const now = new Date().toISOString();
+      const breakTime = calculateBreakTime(attendance.breakStartTime, now);
+      const totalBreakTime = (Number(attendance.breakTime) || 0) + breakTime;
+      const newAttendance = {
+        ...attendance,
+        isOnBreak: false,
+        breakEndTime: now,
+        breakTime: totalBreakTime,
+      };
+      saveAttendanceStatus(newAttendance);
+      addActivity('break', `Ended break at ${formatTimeForDisplay(now)} - Duration: ${breakTime.toFixed(2)}h (Offline)`);
+    }
   };
 
   // Helper functions for time calculations
@@ -332,17 +719,18 @@ const SupervisorDashboard = () => {
     if (!start || !end) return 0;
     const startTime = new Date(start).getTime();
     const endTime = new Date(end).getTime();
-    return (endTime - startTime) / (1000 * 60 * 60); // Convert to hours
+    return (endTime - startTime) / (1000 * 60 * 60);
   };
 
   const calculateBreakTime = (start: string | null, end: string | null): number => {
     if (!start || !end) return 0;
     const startTime = new Date(start).getTime();
     const endTime = new Date(end).getTime();
-    return (endTime - startTime) / (1000 * 60 * 60); // Convert to hours
+    return (endTime - startTime) / (1000 * 60 * 60);
   };
 
-  const formatTimeForDisplay = (timestamp: string): string => {
+  const formatTimeForDisplay = (timestamp: string | null): string => {
+    if (!timestamp || timestamp === "-") return "-";
     return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
@@ -355,7 +743,7 @@ const SupervisorDashboard = () => {
       priority: 'medium',
       timestamp: new Date().toISOString()
     };
-    setActivities(prev => [newActivity, ...prev.slice(0, 9)]); // Keep only 10 most recent
+    setActivities(prev => [newActivity, ...prev.slice(0, 9)]);
   };
 
   // Filter data based on search
@@ -489,6 +877,17 @@ const SupervisorDashboard = () => {
           </div>
         </div>
 
+        {/* API Status Alert */}
+        {apiStatus && (
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 flex items-start gap-3">
+            <AlertCircle className="h-5 w-5 text-yellow-600 mt-0.5" />
+            <div>
+              <p className="font-medium text-yellow-800">API Status</p>
+              <p className="text-sm text-yellow-700">{apiStatus}</p>
+            </div>
+          </div>
+        )}
+
         {/* Attendance Controls */}
         <Card className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
           <CardHeader>
@@ -497,7 +896,7 @@ const SupervisorDashboard = () => {
               Attendance Control
             </CardTitle>
             <CardDescription>
-              Manage your work hours and breaks
+              Manage your work hours and breaks - Data stored in MongoDB
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -533,6 +932,11 @@ const SupervisorDashboard = () => {
                 {attendance.checkInTime && (
                   <p className="text-xs text-gray-500">
                     Checked in: {formatTimeForDisplay(attendance.checkInTime)}
+                  </p>
+                )}
+                {attendance.checkOutTime && (
+                  <p className="text-xs text-green-500">
+                    Checked out: {formatTimeForDisplay(attendance.checkOutTime)}
                   </p>
                 )}
               </div>
@@ -575,7 +979,7 @@ const SupervisorDashboard = () => {
 
             {/* Summary */}
             <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
-              <div className="grid grid-cols-2 gap-4 text-sm">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                 <div>
                   <span className="text-gray-500">Total Hours:</span>
                   <p className="font-medium">{formatNumber(attendance.totalHours)}h</p>
@@ -583,6 +987,18 @@ const SupervisorDashboard = () => {
                 <div>
                   <span className="text-gray-500">Break Time:</span>
                   <p className="font-medium">{formatNumber(attendance.breakTime)}h</p>
+                </div>
+                <div>
+                  <span className="text-gray-500">Employee ID:</span>
+                  <p className="font-medium text-sm">{currentEmployee.id}</p>
+                </div>
+                <div>
+                  <span className="text-gray-500">Status:</span>
+                  <p className="font-medium">
+                    {attendance.isCheckedIn ? 
+                      (attendance.checkOutTime ? "Completed" : "Working") : 
+                      "Not Started"}
+                  </p>
                 </div>
               </div>
             </div>

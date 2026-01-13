@@ -9,47 +9,15 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { 
   Plus, Eye, Trash2, Edit, MapPin, Building, DollarSign, Square, 
   Search, Users, Filter, BarChart, Calendar, RefreshCw, User, Briefcase,
-  Loader2, AlertCircle, ChevronDown
+  Loader2, AlertCircle, ChevronDown, Phone, Mail
 } from "lucide-react";
 import { toast } from "sonner";
 import { FormField } from "./shared";
 import { Label } from "@/components/ui/label";
+import { siteService, Site, Client, SiteStats, CreateSiteRequest } from "@/services/SiteService";
+import { crmService } from "@/services/crmService";
 
-// Define Site interface
-export interface Site {
-  _id: string;
-  name: string;
-  clientId?: string;
-  clientName: string;
-  clientDetails?: {
-    company: string;
-    email: string;
-    phone: string;
-    city: string;
-    state: string;
-  };
-  location: string;
-  areaSqft: number;
-  services: string[];
-  staffDeployment: Array<{ role: string; count: number }>;
-  contractValue: number;
-  contractEndDate: string;
-  status: 'active' | 'inactive';
-  createdAt?: string;
-  updatedAt?: string;
-}
-
-// Define Client interface
-interface Client {
-  _id: string;
-  name: string;
-  company: string;
-  email: string;
-  phone: string;
-  city: string;
-  state: string;
-}
-
+// Define Services and Roles
 const ServicesList = [
   "Housekeeping",
   "Security",
@@ -66,7 +34,48 @@ const StaffRoles = [
   "Waste Collector"
 ];
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
+// Unified Client Service to fetch from CRM
+class ClientService {
+  async getAllClients(searchTerm?: string): Promise<Client[]> {
+    try {
+      console.log('👥 Fetching clients from CRM...');
+      // Fetch from CRM
+      const crmClients = await crmService.clients.getAll(searchTerm);
+      console.log('👥 CRM clients fetched:', crmClients);
+      
+      // Transform CRM clients to match SiteService Client interface
+      const transformedClients = crmClients.map(client => ({
+        _id: client._id,
+        name: client.name,
+        company: client.company,
+        email: client.email,
+        phone: client.phone,
+        city: client.city || "",
+        state: "" // CRM might not have state, you can add if available
+      }));
+      
+      return transformedClients;
+    } catch (error) {
+      console.error('❌ Failed to fetch from CRM, falling back to site service:', error);
+      
+      // Fallback to siteService
+      try {
+        if (searchTerm) {
+          return await siteService.searchClients(searchTerm);
+        } else {
+          return await siteService.getAllClients();
+        }
+      } catch (fallbackError) {
+        console.error('❌ Fallback also failed:', fallbackError);
+        return [];
+      }
+    }
+  }
+
+  async searchClients(query: string): Promise<Client[]> {
+    return this.getAllClients(query);
+  }
+}
 
 const SitesSection = () => {
   const [sites, setSites] = useState<Site[]>([]);
@@ -82,240 +91,111 @@ const SitesSection = () => {
   const [isLoadingClients, setIsLoadingClients] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [stats, setStats] = useState({
-    totalSites: 0,
-    totalStaff: 0,
-    activeSites: 0,
-    inactiveSites: 0,
-    totalContractValue: 0
-  });
+  const [stats, setStats] = useState<SiteStats>(siteService.getDefaultStats());
   const [selectedClient, setSelectedClient] = useState<string>("");
   const [clientSearch, setClientSearch] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
-  // Fetch sites and clients on component mount
+  // Initialize client service
+  const clientService = new ClientService();
+
+  // Fetch sites, stats, and clients on component mount
   useEffect(() => {
     fetchSites();
     fetchStats();
     fetchClients();
   }, []);
 
-  // Fetch sites from backend with error handling
+  // Fetch all sites using SiteService
   const fetchSites = async () => {
     try {
       setIsLoading(true);
-      console.log("Fetching sites from:", `${API_URL}/sites`);
-      
-      const response = await fetch(`${API_URL}/sites`);
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error("Error response:", errorText);
-        throw new Error(`Failed to fetch sites: ${response.status} ${response.statusText}`);
-      }
-      
-      const data = await response.json();
-      console.log("Sites data received:", data);
-      
-      // Validate and transform data - ensure it's always an array
-      const validatedSites = (Array.isArray(data) ? data : [])
-        .map((site: any) => ({
-          _id: site._id || site.id || '',
-          name: site.name || 'Unnamed Site',
-          clientId: site.clientId || '',
-          clientName: site.clientName || 'Unknown Client',
-          clientDetails: site.clientDetails,
-          location: site.location || 'Unknown Location',
-          areaSqft: Number(site.areaSqft) || 0,
-          services: Array.isArray(site.services) ? site.services : [],
-          staffDeployment: Array.isArray(site.staffDeployment) ? site.staffDeployment : [],
-          contractValue: Number(site.contractValue) || 0,
-          contractEndDate: site.contractEndDate || new Date().toISOString(),
-          status: (site.status === 'active' || site.status === 'inactive') ? site.status : 'active',
-          createdAt: site.createdAt,
-          updatedAt: site.updatedAt
-        }))
-        .filter(Boolean); // Remove any null/undefined entries
-      
-      setSites(validatedSites);
-      console.log("Validated sites:", validatedSites);
-      
+      setError(null);
+      const sitesData = await siteService.getAllSites();
+      setSites(sitesData || []);
     } catch (error: any) {
       console.error("Error fetching sites:", error);
+      setError(error.message || "Failed to load sites");
       toast.error(error.message || "Failed to load sites");
-      setSites([]); // Set empty array on error
+      setSites([]);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Fetch clients from backend with proper error handling
+  // Fetch all clients from CRM using unified service
   const fetchClients = async () => {
     try {
       setIsLoadingClients(true);
-      console.log("Fetching clients from:", `${API_URL}/clients`);
-      
-      const response = await fetch(`${API_URL}/clients`);
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error("Error fetching clients response:", errorText);
-        
-        // If endpoint doesn't exist, return empty array
-        if (response.status === 404) {
-          console.warn("Clients endpoint not found. Using empty clients list.");
-          setClients([]);
-          return;
-        }
-        
-        throw new Error(`Failed to fetch clients: ${response.status}`);
-      }
-      
-      const result = await response.json();
-      console.log("Clients data received:", result);
-      
-      // Extract data from response - handle both formats
-      const clientsData = result.data || result || [];
-      
-      // Ensure clients is always an array
-      const clientsArray = Array.isArray(clientsData) ? clientsData : [];
-      setClients(clientsArray);
+      const clientsData = await clientService.getAllClients();
+      setClients(clientsData || []);
       
       // Auto-select first client if available
-      if (clientsArray.length > 0) {
-        setSelectedClient(clientsArray[0]._id);
+      if (clientsData && clientsData.length > 0) {
+        setSelectedClient(clientsData[0]._id);
       }
-      
     } catch (error: any) {
       console.error("Error fetching clients:", error);
-      toast.error("Failed to load clients. Using manual input.");
-      setClients([]); // Set to empty array on error
+      setClients([]);
     } finally {
       setIsLoadingClients(false);
     }
   };
 
-  // Search clients function
+  // Search clients using unified service
   const searchClients = async (searchTerm: string) => {
     try {
-      const response = await fetch(`${API_URL}/clients/search?query=${encodeURIComponent(searchTerm)}`);
-      
-      if (response.ok) {
-        const result = await response.json();
-        // Extract data from response
-        const clientsData = result.data || result || [];
-        // Ensure data is always an array
-        const clientsArray = Array.isArray(clientsData) ? clientsData : [];
-        setClients(clientsArray);
-      } else {
-        // If search fails, keep current clients
-        console.warn("Client search failed, keeping current clients");
-      }
+      setIsLoadingClients(true);
+      const clientsData = await clientService.searchClients(searchTerm);
+      setClients(clientsData || []);
     } catch (error) {
       console.error("Error searching clients:", error);
-      // Don't update clients on error
+      setClients([]);
+    } finally {
+      setIsLoadingClients(false);
     }
   };
 
-  // Fetch site statistics
+  // Fetch site statistics using SiteService
   const fetchStats = async () => {
     try {
-      console.log("Fetching stats from:", `${API_URL}/sites/stats`);
-      
-      const response = await fetch(`${API_URL}/sites/stats`);
-      
-      if (response.ok) {
-        const data = await response.json();
-        console.log("Stats data received:", data);
-        
-        setStats({
-          totalSites: data.totalSites || 0,
-          totalStaff: data.totalStaff || 0,
-          activeSites: data.stats?.find((s: any) => s._id === 'active')?.count || 0,
-          inactiveSites: data.stats?.find((s: any) => s._id === 'inactive')?.count || 0,
-          totalContractValue: data.stats?.reduce((sum: number, stat: any) => sum + (stat.totalContractValue || 0), 0) || 0
-        });
-      } else {
-        console.warn("Failed to fetch stats, using defaults");
-        // Use calculated stats
-        setStats({
-          totalSites: sites.length,
-          totalStaff: sites.reduce((total, site) => total + getTotalStaff(site), 0),
-          activeSites: sites.filter(s => s.status === 'active').length,
-          inactiveSites: sites.filter(s => s.status === 'inactive').length,
-          totalContractValue: sites.reduce((sum, site) => sum + (site.contractValue || 0), 0)
-        });
-      }
+      const statsData = await siteService.getSiteStats();
+      setStats(statsData || siteService.getDefaultStats());
     } catch (error) {
       console.error("Error fetching stats:", error);
-      // Use default stats on error
+      // Fallback to calculated stats
+      const safeSites = sites || [];
+      const statusCounts = siteService.getSiteStatusCounts(safeSites);
       setStats({
-        totalSites: sites.length,
-        totalStaff: sites.reduce((total, site) => total + getTotalStaff(site), 0),
-        activeSites: sites.filter(s => s.status === 'active').length,
-        inactiveSites: sites.filter(s => s.status === 'inactive').length,
-        totalContractValue: sites.reduce((sum, site) => sum + (site.contractValue || 0), 0)
+        totalSites: safeSites.length,
+        totalStaff: siteService.getTotalStaffAcrossSites(safeSites),
+        activeSites: statusCounts.active,
+        inactiveSites: statusCounts.inactive,
+        totalContractValue: siteService.getTotalContractValue(safeSites)
       });
     }
   };
 
-  // Search sites
+  // Search sites using SiteService
   const searchSites = async () => {
     try {
       setIsLoading(true);
-      let url = `${API_URL}/sites/search`;
-      const params = new URLSearchParams();
-      
-      if (searchQuery) {
-        params.append('query', searchQuery);
-      }
-      
-      if (statusFilter !== 'all') {
-        params.append('status', statusFilter);
-      }
-      
-      if (params.toString()) {
-        url += `?${params.toString()}`;
-      }
-      
-      console.log("Searching sites with URL:", url);
-      const response = await fetch(url);
-      
-      if (!response.ok) {
-        throw new Error('Failed to search sites');
-      }
-      
-      const data = await response.json();
-      
-      // Validate and transform search results - ensure it's always an array
-      const validatedSites = (Array.isArray(data) ? data : [])
-        .map((site: any) => ({
-          _id: site._id || site.id || '',
-          name: site.name || 'Unnamed Site',
-          clientId: site.clientId || '',
-          clientName: site.clientName || 'Unknown Client',
-          clientDetails: site.clientDetails,
-          location: site.location || 'Unknown Location',
-          areaSqft: Number(site.areaSqft) || 0,
-          services: Array.isArray(site.services) ? site.services : [],
-          staffDeployment: Array.isArray(site.staffDeployment) ? site.staffDeployment : [],
-          contractValue: Number(site.contractValue) || 0,
-          contractEndDate: site.contractEndDate || new Date().toISOString(),
-          status: (site.status === 'active' || site.status === 'inactive') ? site.status : 'active',
-          createdAt: site.createdAt,
-          updatedAt: site.updatedAt
-        }))
-        .filter(Boolean); // Remove any null/undefined entries
-      
-      setSites(validatedSites);
-      
+      setError(null);
+      const searchResults = await siteService.searchSites({
+        query: searchQuery,
+        status: statusFilter
+      });
+      setSites(searchResults || []);
     } catch (error: any) {
       console.error("Error searching sites:", error);
+      setError(error.message || "Failed to search sites");
       toast.error(error.message || "Failed to search sites");
     } finally {
       setIsLoading(false);
     }
   };
 
+  // Toggle service selection
   const toggleService = (service: string) => {
     setSelectedServices(prev =>
       prev.includes(service)
@@ -324,6 +204,7 @@ const SitesSection = () => {
     );
   };
 
+  // Update staff deployment count
   const updateStaffCount = (role: string, count: number) => {
     setStaffDeployment(prev => {
       const existing = prev.find(item => item.role === role);
@@ -336,6 +217,7 @@ const SitesSection = () => {
     });
   };
 
+  // Reset form to initial state
   const resetForm = () => {
     setSelectedServices([]);
     setStaffDeployment([]);
@@ -345,11 +227,13 @@ const SitesSection = () => {
     setClientSearch("");
   };
 
+  // View site details
   const handleViewSite = (site: Site) => {
     setSelectedSite(site);
     setViewDialogOpen(true);
   };
 
+  // Edit site - populate form with site data
   const handleEditSite = (site: Site) => {
     setEditMode(true);
     setEditingSiteId(site._id);
@@ -361,6 +245,14 @@ const SitesSection = () => {
       const client = clients.find(c => c._id === site.clientId);
       if (client) {
         setSelectedClient(client._id);
+      }
+    } else {
+      // Find client by name if ID is not available
+      const client = clients.find(c => c.name === site.clientName);
+      if (client) {
+        setSelectedClient(client._id);
+      } else {
+        setSelectedClient("");
       }
     }
     
@@ -379,19 +271,17 @@ const SitesSection = () => {
         (form.elements.namedItem('area-sqft') as HTMLInputElement).value = safeAreaSqft.toString();
         (form.elements.namedItem('contract-value') as HTMLInputElement).value = safeContractValue.toString();
         (form.elements.namedItem('contract-end-date') as HTMLInputElement).value = safeContractDate;
-        
-        // Set manual client name if no client selected
-        if (!selectedClient) {
-          (form.elements.namedItem('client-name-manual') as HTMLInputElement).value = site.clientName || '';
-        }
       }
     }, 0);
     
     setDialogOpen(true);
   };
 
+  // Add or update site using SiteService
   const handleAddOrUpdateSite = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    setError(null);
+    
     const formData = new FormData(e.currentTarget);
 
     let clientName = "";
@@ -405,19 +295,20 @@ const SitesSection = () => {
         clientId = client._id;
       }
     } else {
-      // Use manual input
-      clientName = formData.get("client-name-manual") as string;
-    }
-
-    if (!clientName.trim()) {
-      toast.error("Please select or enter a client name");
+      toast.error("Please select a client from the list");
       return;
     }
 
-    // Prepare site data WITHOUT any id fields
-    const siteData: any = {
+    if (!clientName?.trim()) {
+      toast.error("Please select a valid client");
+      return;
+    }
+
+    // Prepare site data
+    const siteData: CreateSiteRequest = {
       name: formData.get("site-name") as string,
       clientName: clientName.trim(),
+      clientId: clientId || undefined,
       location: formData.get("location") as string,
       areaSqft: Number(formData.get("area-sqft")) || 0,
       contractValue: Number(formData.get("contract-value")) || 0,
@@ -427,79 +318,27 @@ const SitesSection = () => {
       status: 'active'
     };
 
-    // Only include clientId if it's not empty
-    if (clientId && clientId.trim() !== '') {
-      siteData.clientId = clientId;
+    // Validate data
+    const validationErrors = siteService.validateSiteData(siteData);
+    if (validationErrors.length > 0) {
+      validationErrors.forEach(error => toast.error(error));
+      return;
     }
 
-    console.log("📤 Submitting CLEAN site data:", siteData);
-    
-    // Double-check: ensure no id fields are present
-    const finalPayload = { ...siteData };
-    delete finalPayload._id;
-    delete finalPayload.id;
-    delete finalPayload.__v;
-    
-    console.log("📤 Final payload to send:", JSON.stringify(finalPayload, null, 2));
-    console.log("📤 Checking for hidden id fields...");
-    
-    // Debug: Check if there are any hidden id fields
-    Object.keys(finalPayload).forEach(key => {
-      if (key.toLowerCase().includes('id') && key !== 'clientId') {
-        console.error(`❌ Found unexpected id field: ${key} = ${finalPayload[key]}`);
-      }
-    });
-
     try {
-      let response;
-      let url;
-      
       if (editMode && editingSiteId) {
         // Update existing site
-        url = `${API_URL}/sites/${editingSiteId}`;
-        console.log("🔄 Updating site at:", url);
-        response = await fetch(url, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(finalPayload),
-        });
+        const updatedSite = await siteService.updateSite(editingSiteId, siteData);
+        if (updatedSite) {
+          toast.success("Site updated successfully!");
+        }
       } else {
         // Create new site
-        url = `${API_URL}/sites`;
-        console.log("➕ Creating new site at:", url);
-        
-        response = await fetch(url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(finalPayload),
-        });
-      }
-      
-      console.log("📥 Response status:", response.status);
-      console.log("📥 Response ok:", response.ok);
-      
-      const responseText = await response.text();
-      console.log("📥 Response text:", responseText);
-      
-      if (!response.ok) {
-        let errorData;
-        try {
-          errorData = JSON.parse(responseText);
-        } catch {
-          errorData = { message: `Server error: ${response.status} ${response.statusText}` };
+        const newSite = await siteService.createSite(siteData);
+        if (newSite) {
+          toast.success("Site added successfully!");
         }
-        console.error("❌ Error response data:", errorData);
-        throw new Error(errorData.message || errorData.error || `Server error: ${response.status}`);
       }
-      
-      const data = JSON.parse(responseText);
-      console.log("✅ Success response:", data);
-      
-      toast.success(data.message || (editMode ? "Site updated successfully!" : "Site added successfully!"));
 
       setDialogOpen(false);
       resetForm();
@@ -510,12 +349,12 @@ const SitesSection = () => {
       await fetchStats();
       
     } catch (error: any) {
-      console.error("❌ Error saving site:", error);
+      console.error("Error saving site:", error);
       
-      // Check for duplicate entry error
-      if (error.message.includes('Duplicate entry') || error.message.includes('duplicate')) {
+      // Check for specific error types
+      if (error.message?.includes('Duplicate entry') || error.message?.includes('duplicate')) {
         toast.error("Site name might already exist. Please try a different name.");
-      } else if (error.message.includes('id')) {
+      } else if (error.message?.includes('id')) {
         toast.error("There was an issue with the site ID. Please try again.");
       } else {
         toast.error(error.message || "Failed to save site");
@@ -523,22 +362,19 @@ const SitesSection = () => {
     }
   };
 
+  // Delete site using SiteService
   const handleDeleteSite = async (siteId: string) => {
     if (!confirm("Are you sure you want to delete this site?")) {
       return;
     }
 
     try {
-      const response = await fetch(`${API_URL}/sites/${siteId}`, {
-        method: 'DELETE',
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || `Failed to delete site: ${response.status}`);
+      const result = await siteService.deleteSite(siteId);
+      if (result?.success) {
+        toast.success("Site deleted successfully!");
+      } else {
+        toast.error("Failed to delete site");
       }
-      
-      toast.success("Site deleted successfully!");
       
       // Refresh sites list and stats
       await fetchSites();
@@ -549,19 +385,13 @@ const SitesSection = () => {
     }
   };
 
+  // Toggle site status using SiteService
   const handleToggleStatus = async (siteId: string) => {
     try {
-      const response = await fetch(`${API_URL}/sites/${siteId}/toggle-status`, {
-        method: 'PATCH',
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || `Failed to update site status: ${response.status}`);
+      const updatedSite = await siteService.toggleSiteStatus(siteId);
+      if (updatedSite) {
+        toast.success("Site status updated!");
       }
-      
-      const data = await response.json();
-      toast.success(data.message || "Site status updated!");
       
       // Refresh sites list and stats
       await fetchSites();
@@ -572,41 +402,24 @@ const SitesSection = () => {
     }
   };
 
-  const getTotalStaff = (site: Site): number => {
-    if (!site || !Array.isArray(site.staffDeployment)) return 0;
-    return site.staffDeployment.reduce((total, item) => {
-      const count = Number(item.count) || 0;
-      return total + count;
-    }, 0);
-  };
-
+  // Formatting helpers using service methods
   const formatCurrency = (amount: number | undefined): string => {
-    const safeAmount = Number(amount) || 0;
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'INR',
-      maximumFractionDigits: 0
-    }).format(safeAmount);
+    return siteService.formatCurrency(amount);
   };
 
   const formatDate = (dateString: string | undefined): string => {
-    if (!dateString) return 'N/A';
-    try {
-      return new Date(dateString).toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric'
-      });
-    } catch (error) {
-      return dateString;
-    }
+    return siteService.formatDate(dateString);
   };
 
   const formatNumber = (num: number | undefined): string => {
-    const safeNum = Number(num) || 0;
-    return safeNum.toLocaleString();
+    return siteService.formatNumber(num);
   };
 
+  const getTotalStaff = (site: Site): number => {
+    return siteService.getTotalStaff(site);
+  };
+
+  // Handle dialog close
   const handleDialogClose = (open: boolean) => {
     if (!open) {
       resetForm();
@@ -614,86 +427,167 @@ const SitesSection = () => {
     setDialogOpen(open);
   };
 
+  // Handle search form submission
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     searchSites();
   };
 
+  // Reset all filters
   const handleResetFilters = () => {
     setSearchQuery("");
     setStatusFilter("all");
     fetchSites();
   };
 
-  // Calculate average area safely
+  // Calculate average area using service method
   const calculateAverageArea = (): string => {
-    if (sites.length === 0) return "0";
-    
-    const totalArea = sites.reduce((sum, site) => {
-      return sum + (Number(site.areaSqft) || 0);
-    }, 0);
-    
-    const average = totalArea / sites.length;
+    const average = siteService.calculateAverageArea(sites);
     return Math.round(average / 1000).toString();
   };
 
-  // Helper function to safely render clients dropdown
+  // Safe stats accessor
+  const getSafeStats = () => {
+    return stats || siteService.getDefaultStats();
+  };
+
+  // Render clients dropdown with CRM data
   const renderClientsDropdown = () => {
-    // Ensure clients is always an array
-    const safeClients = Array.isArray(clients) ? clients : [];
-    
     if (isLoadingClients) {
       return (
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-2 p-2">
           <Loader2 className="h-4 w-4 animate-spin" />
-          <span className="text-sm">Loading clients...</span>
+          <span className="text-sm">Loading clients from CRM...</span>
         </div>
       );
     }
     
+    const safeClients = clients || [];
+    
     return (
       <>
         <div className="relative">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Search clients..."
+            placeholder="Search clients in CRM..."
             value={clientSearch}
             onChange={(e) => {
               setClientSearch(e.target.value);
               if (e.target.value.length >= 2) {
                 searchClients(e.target.value);
+              } else if (e.target.value.length === 0) {
+                fetchClients(); // Reset to all clients
               }
             }}
-            className="mb-2"
+            className="pl-10 mb-2"
           />
         </div>
-        <select
-          value={selectedClient}
-          onChange={(e) => setSelectedClient(e.target.value)}
-          className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-        >
-          <option value="">Select a client...</option>
+        
+        <div className="border rounded-md max-h-60 overflow-y-auto">
           {safeClients.length === 0 ? (
-            <option value="" disabled>
-              No clients found. Add clients in the Clients section.
-            </option>
+            <div className="p-4 text-center text-sm text-muted-foreground">
+              No clients found in CRM. 
+              <br />
+              <Button 
+                variant="link" 
+                size="sm" 
+                className="mt-1"
+                onClick={() => {
+                  // Optionally open CRM in new tab or redirect
+                  toast.info("Please add clients in the CRM section first");
+                }}
+              >
+                Add clients in CRM
+              </Button>
+            </div>
           ) : (
-            safeClients.map((client) => (
-              <option key={client._id} value={client._id}>
-                {client.name} - {client.company} ({client.city})
-              </option>
-            ))
+            <div className="space-y-1 p-1">
+              {safeClients.map((client) => (
+                <div 
+                  key={client._id}
+                  className={`p-2 rounded cursor-pointer hover:bg-gray-100 ${selectedClient === client._id ? 'bg-blue-50 border border-blue-200' : ''}`}
+                  onClick={() => setSelectedClient(client._id)}
+                >
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <div className="font-medium">{client.name}</div>
+                      <div className="text-xs text-muted-foreground">{client.company}</div>
+                    </div>
+                    {selectedClient === client._id && (
+                      <Badge variant="outline" className="text-xs">Selected</Badge>
+                    )}
+                  </div>
+                  <div className="mt-1 flex items-center space-x-2 text-xs text-muted-foreground">
+                    {client.email && <div className="flex items-center"><Mail className="h-3 w-3 mr-1" /> {client.email}</div>}
+                    {client.phone && <div className="flex items-center"><Phone className="h-3 w-3 mr-1" /> {client.phone}</div>}
+                    {client.city && <div className="flex items-center"><MapPin className="h-3 w-3 mr-1" /> {client.city}</div>}
+                  </div>
+                </div>
+              ))}
+            </div>
           )}
-        </select>
+        </div>
+        
+        {/* Selected client info */}
+        {selectedClient && safeClients.length > 0 && (
+          <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-md">
+            <div className="flex justify-between items-start">
+              <div>
+                <div className="font-medium">Selected Client:</div>
+                <div className="text-sm">
+                  {(() => {
+                    const client = safeClients.find(c => c._id === selectedClient);
+                    if (!client) return null;
+                    
+                    return (
+                      <>
+                        <div className="font-semibold">{client.name} - {client.company}</div>
+                        <div className="mt-1 space-y-1">
+                          {client.email && <div className="flex items-center"><Mail className="h-3 w-3 mr-1" /> {client.email}</div>}
+                          {client.phone && <div className="flex items-center"><Phone className="h-3 w-3 mr-1" /> {client.phone}</div>}
+                          {client.city && <div className="flex items-center"><MapPin className="h-3 w-3 mr-1" /> {client.city}</div>}
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+              </div>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={() => setSelectedClient("")}
+                className="h-6 text-xs"
+              >
+                Clear
+              </Button>
+            </div>
+          </div>
+        )}
       </>
     );
   };
 
   return (
     <div className="space-y-6">
-      {/* Debug Info - Remove in production */}
-      <div className="p-2 bg-yellow-50 border border-yellow-200 rounded text-xs">
-        <strong>Debug Info:</strong> API URL: {API_URL} | Sites: {sites.length} | Clients: {Array.isArray(clients) ? clients.length : 'Invalid'}
-      </div>
+      {/* Error Display */}
+      {error && (
+        <Card className="border-red-200 bg-red-50">
+          <CardContent className="p-4">
+            <div className="flex items-center text-red-700">
+              <AlertCircle className="h-5 w-5 mr-2" />
+              <span>{error}</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setError(null)}
+                className="ml-auto"
+              >
+                Dismiss
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -702,14 +596,14 @@ const SitesSection = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Total Sites</p>
-                <p className="text-2xl font-bold">{stats.totalSites}</p>
+                <p className="text-2xl font-bold">{getSafeStats().totalSites}</p>
               </div>
               <Building className="h-8 w-8 text-blue-500" />
             </div>
             <div className="mt-2 text-sm">
-              <span className="text-green-600 font-medium">{stats.activeSites} active</span>
+              <span className="text-green-600 font-medium">{getSafeStats().activeSites} active</span>
               <span className="mx-2">•</span>
-              <span className="text-gray-600">{stats.inactiveSites} inactive</span>
+              <span className="text-gray-600">{getSafeStats().inactiveSites} inactive</span>
             </div>
           </CardContent>
         </Card>
@@ -719,7 +613,7 @@ const SitesSection = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Total Staff</p>
-                <p className="text-2xl font-bold">{stats.totalStaff}</p>
+                <p className="text-2xl font-bold">{getSafeStats().totalStaff}</p>
               </div>
               <Users className="h-8 w-8 text-green-500" />
             </div>
@@ -731,7 +625,7 @@ const SitesSection = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Total Contract Value</p>
-                <p className="text-2xl font-bold">{formatCurrency(stats.totalContractValue)}</p>
+                <p className="text-2xl font-bold">{formatCurrency(getSafeStats().totalContractValue)}</p>
               </div>
               <DollarSign className="h-8 w-8 text-amber-500" />
             </div>
@@ -814,6 +708,9 @@ const SitesSection = () => {
             <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>{editMode ? "Edit Site" : "Add New Site"}</DialogTitle>
+                <DialogDescription>
+                  Select a client from your CRM database
+                </DialogDescription>
               </DialogHeader>
 
               <form id="site-form" onSubmit={handleAddOrUpdateSite} className="space-y-4">
@@ -828,13 +725,6 @@ const SitesSection = () => {
                     />
                   </FormField>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="client-select" className="text-sm font-medium">
-                      Select Client <span className="text-muted-foreground text-xs">(or enter manually below)</span>
-                    </Label>
-                    {renderClientsDropdown()}
-                  </div>
-
                   <FormField label="Location" id="location" required>
                     <Input 
                       id="location" 
@@ -844,6 +734,27 @@ const SitesSection = () => {
                       defaultValue=""
                     />
                   </FormField>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">
+                    Select Client from CRM <span className="text-muted-foreground">(Required)</span>
+                  </Label>
+                  <div className="text-xs text-muted-foreground mb-2">
+                    Search and select a client from your CRM database
+                  </div>
+                  {renderClientsDropdown()}
+                  
+                  {!selectedClient && !isLoadingClients && clients.length > 0 && (
+                    <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded">
+                      <p className="text-xs text-yellow-700">
+                        Please select a client from the list above
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <FormField label="Area (sqft)" id="area-sqft" required>
                     <Input 
                       id="area-sqft" 
@@ -878,24 +789,6 @@ const SitesSection = () => {
                   </FormField>
                 </div>
 
-                {/* Manual client input for when no client is selected */}
-                {!selectedClient && (
-                  <div className="border border-yellow-200 bg-yellow-50 p-4 rounded-md">
-                    <FormField label="Client Name (Manual Entry)" id="client-name-manual" required>
-                      <Input 
-                        id="client-name-manual" 
-                        name="client-name-manual" 
-                        placeholder="Enter client name if not in list above" 
-                        required 
-                        defaultValue=""
-                      />
-                    </FormField>
-                    <p className="text-xs text-yellow-700 mt-1">
-                      Client will be saved as a text field. For better tracking, add the client to the Clients section first.
-                    </p>
-                  </div>
-                )}
-
                 <div className="border p-4 rounded-md">
                   <p className="font-medium mb-3">Services for this Site</p>
                   <div className="grid grid-cols-2 gap-2">
@@ -906,7 +799,7 @@ const SitesSection = () => {
                           checked={selectedServices.includes(service)}
                           onCheckedChange={() => toggleService(service)}
                         />
-                        <label htmlFor={`service-${service}`} className="cursor-pointer">
+                        <label htmlFor={`service-${service}`} className="cursor-pointer text-sm">
                           {service}
                         </label>
                       </div>
@@ -922,7 +815,7 @@ const SitesSection = () => {
                       const count = deployment?.count || 0;
                       return (
                         <div key={role} className="flex items-center justify-between">
-                          <span>{role}</span>
+                          <span className="text-sm">{role}</span>
                           <div className="flex items-center space-x-2">
                             <Button
                               type="button"
@@ -930,6 +823,7 @@ const SitesSection = () => {
                               size="sm"
                               onClick={() => updateStaffCount(role, count - 1)}
                               disabled={count <= 0}
+                              className="h-8 w-8"
                             >
                               -
                             </Button>
@@ -937,7 +831,7 @@ const SitesSection = () => {
                               type="number"
                               value={count}
                               onChange={(e) => updateStaffCount(role, parseInt(e.target.value) || 0)}
-                              className="w-20 text-center"
+                              className="w-16 text-center h-8"
                               min="0"
                             />
                             <Button
@@ -945,6 +839,7 @@ const SitesSection = () => {
                               variant="outline"
                               size="sm"
                               onClick={() => updateStaffCount(role, count + 1)}
+                              className="h-8 w-8"
                             >
                               +
                             </Button>
@@ -955,9 +850,14 @@ const SitesSection = () => {
                   </div>
                 </div>
 
-                <Button type="submit" className="w-full">
-                  {editMode ? "Update Site" : "Add Site"}
-                </Button>
+                <div className="flex gap-2">
+                  <Button type="submit" className="flex-1" disabled={!selectedClient}>
+                    {editMode ? "Update Site" : "Add Site"}
+                  </Button>
+                  <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
+                    Cancel
+                  </Button>
+                </div>
               </form>
             </DialogContent>
           </Dialog>
@@ -969,7 +869,7 @@ const SitesSection = () => {
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
               <span className="ml-3">Loading sites...</span>
             </div>
-          ) : sites.length === 0 ? (
+          ) : !sites || sites.length === 0 ? (
             <div className="text-center py-12">
               <Building className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
               <h3 className="text-lg font-semibold mb-2">No Sites Found</h3>
@@ -1109,7 +1009,9 @@ const SitesSection = () => {
           )}
         </CardContent>
       </Card>
-        <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
+      
+      {/* View Site Dialog */}
+      <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Site Details</DialogTitle>

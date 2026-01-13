@@ -1,100 +1,24 @@
 // src/controllers/upload.controller.ts
-import type { Request, Response } from 'express';
+import { Request, Response } from 'express';
 import { v2 as cloudinary } from 'cloudinary';
 import Document from '../models/documents.model';
-import { IUser } from '../models/User';
+import streamifier from 'streamifier';
 
-const streamifier = require('streamifier');
-
-// Custom Request interface with user property
-export interface AuthenticatedRequest extends Request {
-  user?: IUser;
-  file?: Express.Multer.File;
-  files?: Express.Multer.File[] | { [fieldname: string]: Express.Multer.File[] };
-}
-
+// Configure Cloudinary
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
+  api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
 export class UploadController {
-  // ============ GET ALL DOCUMENTS ============
-  static async getAllDocuments(req: Request, res: Response): Promise<void> {
+  // Upload single document
+  static async uploadSingle(req: Request, res: Response): Promise<void> {
     try {
-      const documents = await Document.find({ isArchived: false })
-        .populate('uploadedBy', 'name email')
-        .sort({ createdAt: -1 });
+      console.log('📤 Starting upload process...');
       
-      res.status(200).json({
-        success: true,
-        count: documents.length,
-        data: documents
-      });
-    } catch (error: any) {
-      res.status(500).json({
-        success: false,
-        message: 'Error fetching documents',
-        error: error.message
-      });
-    }
-  }
-
-  // ============ GET DOCUMENTS BY CATEGORY ============
-  static async getDocumentsByCategory(req: Request, res: Response): Promise<void> {
-    try {
-      const { category } = req.params;
-      const documents = await Document.find({ 
-        category,
-        isArchived: false 
-      }).sort({ createdAt: -1 });
-      
-      res.status(200).json({
-        success: true,
-        count: documents.length,
-        data: documents
-      });
-    } catch (error: any) {
-      res.status(500).json({
-        success: false,
-        message: 'Error fetching documents by category',
-        error: error.message
-      });
-    }
-  }
-
-  // ============ GET DOCUMENT BY ID ============
-  static async getDocumentById(req: Request, res: Response): Promise<void> {
-    try {
-      const { id } = req.params;
-      const document = await Document.findById(id).populate('uploadedBy', 'name email');
-      
-      if (!document) {
-        res.status(404).json({
-          success: false,
-          message: 'Document not found'
-        });
-        return;
-      }
-      
-      res.status(200).json({
-        success: true,
-        data: document
-      });
-    } catch (error: any) {
-      res.status(500).json({
-        success: false,
-        message: 'Error fetching document',
-        error: error.message
-      });
-    }
-  }
-
-  // ============ CREATE DOCUMENT (Your existing uploadSingle) ============
-  static async createDocument(req: AuthenticatedRequest, res: Response): Promise<void> {
-    try {
       if (!req.file) {
+        console.log('❌ No file in request');
         res.status(400).json({
           success: false,
           message: 'No file uploaded'
@@ -102,126 +26,211 @@ export class UploadController {
         return;
       }
 
-      if (!process.env.CLOUDINARY_CLOUD_NAME || 
-          !process.env.CLOUDINARY_API_KEY || 
-          !process.env.CLOUDINARY_API_SECRET) {
-        throw new Error('Cloudinary configuration is missing');
+      console.log('📁 File details:', {
+        name: req.file.originalname,
+        size: req.file.size,
+        mimetype: req.file.mimetype,
+        folder: req.body.folder || 'documents',
+        category: req.body.category || 'uploaded'
+      });
+
+      // Validate file size
+      const maxSize = 10 * 1024 * 1024; // 10MB
+      if (req.file.size > maxSize) {
+        res.status(400).json({
+          success: false,
+          message: 'File size exceeds 10MB limit'
+        });
+        return;
       }
 
+      // Upload to Cloudinary
+      console.log('☁️ Uploading to Cloudinary...');
+      
       const result = await new Promise<any>((resolve, reject) => {
         const uploadStream = cloudinary.uploader.upload_stream(
           {
             resource_type: 'auto',
             folder: req.body.folder || 'documents',
+            timeout: 60000 // 60 seconds timeout
           },
           (error, result) => {
             if (error) {
-              reject(error);
+              console.error('❌ Cloudinary upload error:', error);
+              reject(new Error(`Cloudinary upload failed: ${error.message}`));
+            } else if (!result) {
+              reject(new Error('Cloudinary upload failed: No result returned'));
             } else {
+              console.log('✅ Cloudinary upload successful:', {
+                public_id: result.public_id,
+                url: result.secure_url,
+                format: result.format
+              });
               resolve(result);
             }
           }
         );
 
-        const bufferStream = streamifier.createReadStream(req.file!.buffer);
-        bufferStream.pipe(uploadStream);
+        // Handle stream errors
+        uploadStream.on('error', (error) => {
+          console.error('❌ Stream error:', error);
+          reject(error);
+        });
+
+        // Pipe the file buffer to Cloudinary
+        streamifier.createReadStream(req.file!.buffer).pipe(uploadStream);
       });
 
-      const documentData: any = {
+      // Get category from request or default to 'uploaded'
+      const category = req.body.category || 'uploaded';
+      
+      // Prepare tags
+      const tags = req.body.tags ? req.body.tags.split(',').map((tag: string) => tag.trim()) : [];
+      
+      // Add specific tag based on category
+      if (category === 'template') {
+        tags.push('template');
+      }
+
+      // Create document in database
+      const document = new Document({
         url: result.secure_url,
         public_id: result.public_id,
         originalname: req.file.originalname,
         mimetype: req.file.mimetype,
         size: req.file.size,
-        folder: req.body.folder || 'documents',
-      };
+        folder: result.folder || 'documents',
+        category: category,
+        description: req.body.description || '',
+        tags: tags,
+        uploadedAt: new Date(),
+        lastAccessed: new Date()
+      });
 
-      if (req.body.description) {
-        documentData.description = req.body.description;
-      }
+      console.log('💾 Saving to database:', {
+        originalname: req.file.originalname,
+        public_id: result.public_id,
+        category: category,
+        folder: document.folder
+      });
+
+      await document.save();
       
-      if (req.body.category) {
-        documentData.category = req.body.category;
-      }
-      
-      if (req.body.tags) {
-        documentData.tags = Array.isArray(req.body.tags) 
-          ? req.body.tags 
-          : req.body.tags.split(',').map((tag: string) => tag.trim());
-      }
-
-      if (req.user && req.user._id) {
-        documentData.uploadedBy = req.user._id;
-      }
-
-      const document = new Document(documentData);
-      const savedDocument = await document.save();
+      console.log('✅ Document saved to database with ID:', document._id);
       
       res.status(201).json({
         success: true,
-        message: 'Document created successfully',
-        data: savedDocument
+        message: 'Document uploaded successfully',
+        data: {
+          url: result.secure_url,
+          public_id: result.public_id,
+          format: result.format,
+          size: req.file.size,
+          originalname: req.file.originalname,
+          documentId: document._id,
+          mimetype: req.file.mimetype,
+          category: category,
+          folder: document.folder
+        }
       });
 
     } catch (error: any) {
+      console.error('❌ Upload error:', error);
+      
+      let errorMessage = 'Failed to upload document';
+      
+      if (error.name === 'ValidationError') {
+        // Detailed validation error
+        const validationErrors = Object.values(error.errors).map((e: any) => e.message);
+        errorMessage = `Validation error: ${validationErrors.join(', ')}`;
+        console.error('🔍 Validation errors:', validationErrors);
+      } else if (error instanceof Error) {
+        errorMessage = error.message;
+      }
+      
       res.status(500).json({
         success: false,
-        message: 'Error creating document',
-        error: error.message
+        message: errorMessage,
+        error: process.env.NODE_ENV === 'development' ? errorMessage : undefined
       });
     }
   }
 
-  // ============ UPDATE DOCUMENT ============
-  static async updateDocument(req: Request, res: Response): Promise<void> {
+  // Get all documents with pagination
+  static async getAllDocuments(req: Request, res: Response): Promise<void> {
     try {
-      const { id } = req.params;
-      const { title, description, category, tags } = req.body;
-
-      const updateData: any = {};
-      if (title) updateData.title = title;
-      if (description) updateData.description = description;
-      if (category) updateData.category = category;
-      if (tags) {
-        updateData.tags = Array.isArray(tags) 
-          ? tags 
-          : tags.split(',').map((tag: string) => tag.trim());
+      const { page = 1, limit = 20, category } = req.query;
+      const skip = (Number(page) - 1) * Number(limit);
+      
+      const query: any = { isArchived: false };
+      if (category) {
+        query.category = category;
       }
-
-      const updatedDocument = await Document.findByIdAndUpdate(
-        id,
-        updateData,
-        { new: true, runValidators: true }
-      );
-
-      if (!updatedDocument) {
-        res.status(404).json({
-          success: false,
-          message: 'Document not found'
-        });
-        return;
-      }
-
-      res.status(200).json({
+      
+      const documents = await Document.find(query)
+        .sort({ uploadedAt: -1 })
+        .skip(skip)
+        .limit(Number(limit));
+      
+      const total = await Document.countDocuments(query);
+      
+      res.json({
         success: true,
-        message: 'Document updated successfully',
-        data: updatedDocument
+        message: 'Documents fetched successfully',
+        data: documents,
+        count: documents.length,
+        total,
+        pages: Math.ceil(total / Number(limit)),
+        currentPage: Number(page)
       });
     } catch (error: any) {
+      console.error('❌ Error fetching documents:', error);
       res.status(500).json({
         success: false,
-        message: 'Error updating document',
+        message: 'Failed to fetch documents',
         error: error.message
       });
     }
   }
 
-  // ============ DELETE DOCUMENT ============
-  static async deleteDocument(req: Request, res: Response): Promise<void> {
+  // Get documents by category
+  static async getDocumentsByCategory(req: Request, res: Response): Promise<void> {
+    try {
+      const { category } = req.params;
+      const documents = await Document.find({ 
+        category,
+        isArchived: false 
+      }).sort({ uploadedAt: -1 });
+      
+      res.json({
+        success: true,
+        message: `Documents in category ${category} fetched successfully`,
+        data: documents
+      });
+    } catch (error: any) {
+      console.error('❌ Error fetching documents by category:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to fetch documents',
+        error: error.message
+      });
+    }
+  }
+
+  // Get document by ID
+  static async getDocumentById(req: Request, res: Response): Promise<void> {
     try {
       const { id } = req.params;
       
-      // Find the document first
+      // Check if ID is valid MongoDB ObjectId
+      if (!id || id.length !== 24 || !/^[0-9a-fA-F]{24}$/.test(id)) {
+        res.status(400).json({
+          success: false,
+          message: 'Invalid document ID format'
+        });
+        return;
+      }
+      
       const document = await Document.findById(id);
       
       if (!document) {
@@ -231,120 +240,223 @@ export class UploadController {
         });
         return;
       }
-
-      // Delete from Cloudinary if public_id exists
-      if (document.public_id) {
-        try {
-          await cloudinary.uploader.destroy(document.public_id);
-        } catch (cloudinaryError: any) {
-          console.warn('Cloudinary deletion failed:', cloudinaryError.message);
-          // Continue with database deletion even if Cloudinary fails
-        }
-      }
-
-      // Delete from database
-      await Document.findByIdAndDelete(id);
       
-      res.status(200).json({
+      // Update last accessed time
+      document.lastAccessed = new Date();
+      await document.save();
+      
+      res.json({
         success: true,
-        message: 'Document deleted successfully',
-        data: {
-          id: document._id,
-          filename: document.originalname
-        }
+        message: 'Document fetched successfully',
+        data: document
       });
-
     } catch (error: any) {
+      console.error('❌ Error fetching document by ID:', error);
       res.status(500).json({
         success: false,
-        message: 'Error deleting document',
+        message: 'Failed to fetch document',
         error: error.message
       });
     }
   }
 
-  // ============ SEARCH DOCUMENTS ============
+  // Create document metadata
+  static async createDocument(req: Request, res: Response): Promise<void> {
+    try {
+      console.log('📝 Creating document metadata:', req.body);
+      
+      const document = new Document({
+        ...req.body,
+        uploadedAt: new Date(),
+        lastAccessed: new Date()
+      });
+      
+      await document.save();
+      
+      res.status(201).json({
+        success: true,
+        message: 'Document metadata created successfully',
+        data: document
+      });
+    } catch (error: any) {
+      console.error('❌ Error creating document metadata:', error);
+      res.status(400).json({
+        success: false,
+        message: 'Failed to create document',
+        error: error.message
+      });
+    }
+  }
+
+  // Update document
+  static async updateDocument(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const updates = req.body;
+      
+      console.log('✏️ Updating document:', id, updates);
+      
+      // Check if ID is valid MongoDB ObjectId
+      if (!id || id.length !== 24 || !/^[0-9a-fA-F]{24}$/.test(id)) {
+        res.status(400).json({
+          success: false,
+          message: 'Invalid document ID format'
+        });
+        return;
+      }
+      
+      const document = await Document.findByIdAndUpdate(
+        id,
+        updates,
+        { new: true, runValidators: true }
+      );
+      
+      if (!document) {
+        res.status(404).json({
+          success: false,
+          message: 'Document not found'
+        });
+        return;
+      }
+      
+      res.json({
+        success: true,
+        message: 'Document updated successfully',
+        data: document
+      });
+    } catch (error: any) {
+      console.error('❌ Error updating document:', error);
+      res.status(400).json({
+        success: false,
+        message: 'Failed to update document',
+        error: error.message
+      });
+    }
+  }
+
+  // Delete document
+  static async deleteDocument(req: Request, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      
+      console.log('🗑️ Deleting document:', id);
+      
+      // Check if ID is valid MongoDB ObjectId
+      if (!id || id.length !== 24 || !/^[0-9a-fA-F]{24}$/.test(id)) {
+        res.status(400).json({
+          success: false,
+          message: 'Invalid document ID format. Must be a valid MongoDB ObjectId'
+        });
+        return;
+      }
+      
+      const document = await Document.findById(id);
+      
+      if (!document) {
+        res.status(404).json({
+          success: false,
+          message: 'Document not found'
+        });
+        return;
+      }
+      
+      // Delete from Cloudinary
+      try {
+        console.log('☁️ Deleting from Cloudinary:', document.public_id);
+        await cloudinary.uploader.destroy(document.public_id);
+        console.log('✅ Deleted from Cloudinary:', document.public_id);
+      } catch (cloudinaryError) {
+        console.warn('⚠️ Cloudinary delete failed, but continuing with database delete:', cloudinaryError);
+      }
+      
+      // Delete from database
+      await Document.findByIdAndDelete(id);
+      
+      console.log('✅ Deleted from database:', id);
+      
+      res.json({
+        success: true,
+        message: 'Document deleted successfully'
+      });
+    } catch (error: any) {
+      console.error('❌ Error deleting document:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to delete document',
+        error: error.message
+      });
+    }
+  }
+
+  // Search documents
   static async searchDocuments(req: Request, res: Response): Promise<void> {
     try {
       const { q } = req.query;
       
-      if (!q || typeof q !== 'string') {
-        res.status(400).json({
-          success: false,
-          message: 'Search query is required'
+      console.log('🔍 Searching documents for:', q);
+      
+      if (!q || q.toString().trim() === '') {
+        const documents = await Document.find({ isArchived: false }).sort({ uploadedAt: -1 });
+        res.json({
+          success: true,
+          message: 'All documents fetched',
+          data: documents
         });
         return;
       }
-
-      const documents = await Document.find({
+      
+      const searchQuery = q.toString();
+      
+      const query = {
+        isArchived: false,
         $or: [
-          { originalname: { $regex: q, $options: 'i' } },
-          { description: { $regex: q, $options: 'i' } },
-          { category: { $regex: q, $options: 'i' } },
-          { tags: { $regex: q, $options: 'i' } }
-        ],
-        isArchived: false
-      }).sort({ createdAt: -1 });
-
-      res.status(200).json({
+          { originalname: { $regex: searchQuery, $options: 'i' } },
+          { description: { $regex: searchQuery, $options: 'i' } },
+          { tags: { $regex: searchQuery, $options: 'i' } },
+          { category: { $regex: searchQuery, $options: 'i' } }
+        ]
+      };
+      
+      const documents = await Document.find(query).sort({ uploadedAt: -1 });
+      
+      console.log(`✅ Search found ${documents.length} documents`);
+      
+      res.json({
         success: true,
-        count: documents.length,
+        message: 'Search completed successfully',
         data: documents
       });
     } catch (error: any) {
+      console.error('❌ Error searching documents:', error);
       res.status(500).json({
         success: false,
-        message: 'Error searching documents',
+        message: 'Failed to search documents',
         error: error.message
       });
     }
   }
 
-  // ============ YOUR EXISTING METHODS ============
-  static async uploadSingle(req: AuthenticatedRequest, res: Response) {
-    // Keep your existing uploadSingle implementation
-    // This is the same as createDocument but kept for backward compatibility
-    return this.createDocument(req, res);
-  }
-
-  static async uploadMultiple(req: AuthenticatedRequest, res: Response) {
-    // Keep your existing uploadMultiple implementation
-    try {
-      const files = req.files as Express.Multer.File[];
-      
-      if (!files || !Array.isArray(files) || files.length === 0) {
-        return res.status(400).json({
-          success: false,
-          message: 'No files uploaded'
-        });
-      }
-
-      // ... rest of your existing uploadMultiple code
-      // Keep it as is
-    } catch (error: any) {
-      res.status(500).json({
-        success: false,
-        message: 'Internal server error',
-        error: process.env.NODE_ENV === 'development' ? error.message : 'Upload failed'
-      });
-    }
-  }
-
-  static async deleteFile(req: Request, res: Response) {
-    // Keep your existing deleteFile implementation
+  // Delete from Cloudinary by public ID
+  static async deleteFile(req: Request, res: Response): Promise<void> {
     try {
       const { publicId } = req.params;
       
-      // ... rest of your existing deleteFile code
-      // Keep it as is
+      console.log('☁️ Deleting file from Cloudinary:', publicId);
+      
+      const result = await cloudinary.uploader.destroy(publicId);
+      
+      res.json({
+        success: true,
+        message: 'File deleted from Cloudinary',
+        data: result
+      });
     } catch (error: any) {
+      console.error('❌ Error deleting file from Cloudinary:', error);
       res.status(500).json({
         success: false,
-        message: 'Internal server error',
-        error: process.env.NODE_ENV === 'development' ? error.message : 'Delete failed'
+        message: 'Failed to delete file from Cloudinary',
+        error: error.message
       });
     }
   }
 }
-
-export default UploadController;

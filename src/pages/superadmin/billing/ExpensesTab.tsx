@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -8,9 +9,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Eye, Edit, Search, Receipt, ChevronLeft, ChevronRight, List, Grid, Trash2 } from "lucide-react";
-import { sites, expenseCategories, getStatusColor, getExpenseTypeColor, formatCurrency } from "../Billing";
+import { Plus, Eye, Edit, Search, Receipt, ChevronLeft, ChevronRight, Trash2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { siteService, Site } from "@/services/SiteService";
 
 interface Expense {
   _id: string;
@@ -25,6 +26,7 @@ interface Expense {
   vendor: string;
   paymentMethod: string;
   site: string;
+  siteId?: string;
   expenseType: "operational" | "office" | "other";
   notes?: string;
   createdBy: string;
@@ -33,27 +35,96 @@ interface Expense {
 }
 
 interface ExpensesTabProps {
-  userId?: string; // Add userId prop for createdBy field
+  userId?: string;
 }
+
+// Expense categories
+const expenseCategories = [
+  "Cleaning Supplies",
+  "Security Equipment",
+  "Office Supplies",
+  "Utilities",
+  "Maintenance",
+  "Transportation",
+  "Staff Welfare",
+  "Training",
+  "Marketing",
+  "Legal Fees",
+  "Insurance",
+  "Software",
+  "Hardware",
+  "Travel",
+  "Food & Beverages",
+  "Miscellaneous"
+];
+
+// Helper functions
+const getStatusColor = (status: string) => {
+  switch (status) {
+    case "approved":
+      return "default";
+    case "pending":
+      return "secondary";
+    case "rejected":
+      return "destructive";
+    default:
+      return "outline";
+  }
+};
+
+const getExpenseTypeColor = (type: string) => {
+  switch (type) {
+    case "operational":
+      return "bg-blue-100 text-blue-800 border-blue-200";
+    case "office":
+      return "bg-green-100 text-green-800 border-green-200";
+    case "other":
+      return "bg-purple-100 text-purple-800 border-purple-200";
+    default:
+      return "";
+  }
+};
+
+const formatCurrency = (amount: number) => {
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    maximumFractionDigits: 0
+  }).format(amount);
+};
 
 const ExpensesTab: React.FC<ExpensesTabProps> = ({ userId = "user-001" }) => {
   const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [sites, setSites] = useState<Site[]>([]);
   const [expenseDialogOpen, setExpenseDialogOpen] = useState(false);
   const [expenseViewDialogOpen, setExpenseViewDialogOpen] = useState(false);
   const [expenseEditDialogOpen, setExpenseEditDialogOpen] = useState(false);
   const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null);
-  const [viewMode, setViewMode] = useState<"table" | "card">("table");
   const [expenseTypeFilter, setExpenseTypeFilter] = useState<"all" | "operational" | "office" | "other">("all");
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(10);
-  const [reportPeriod, setReportPeriod] = useState<"weekly" | "monthly">("monthly");
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
-  const [siteWiseExpenses, setSiteWiseExpenses] = useState<{ [key: string]: { operational: number, office: number, other: number, total: number } }>({});
+  const [loadingSites, setLoadingSites] = useState(false);
 
   // API Base URL
   const API_BASE_URL = "http://localhost:5001/api";
+
+  // Fetch sites from SiteService
+  const fetchSites = async () => {
+    try {
+      setLoadingSites(true);
+      const sitesData = await siteService.getAllSites();
+      setSites(sitesData || []);
+      console.log('Fetched sites:', sitesData?.length || 0);
+    } catch (error) {
+      console.error("Error fetching sites:", error);
+      setSites([]);
+    } finally {
+      setLoadingSites(false);
+    }
+  };
 
   // Fetch expenses from backend
   const fetchExpenses = async () => {
@@ -78,47 +149,15 @@ const ExpensesTab: React.FC<ExpensesTabProps> = ({ userId = "user-001" }) => {
     }
   };
 
-  // Fetch site-wise statistics
-  const fetchExpenseStats = async () => {
-    try {
-      const response = await fetch(
-        `${API_BASE_URL}/expenses/stats?period=${reportPeriod}`
-      );
-      
-      if (!response.ok) throw new Error('Failed to fetch expense stats');
-      
-      const data = await response.json();
-      if (data.success) {
-        // Transform data for frontend
-        const siteStats: { [key: string]: { operational: number, office: number, other: number, total: number } } = {};
-        
-        data.data.siteStats.forEach((stat: any) => {
-          siteStats[stat._id] = {
-            operational: stat.operational || 0,
-            office: stat.office || 0,
-            other: stat.other || 0,
-            total: stat.total || 0
-          };
-        });
-        
-        // Ensure all sites are present
-        sites.forEach(site => {
-          if (!siteStats[site]) {
-            siteStats[site] = { operational: 0, office: 0, other: 0, total: 0 };
-          }
-        });
-        
-        setSiteWiseExpenses(siteStats);
-      }
-    } catch (error) {
-      console.error("Error fetching expense stats:", error);
-    }
-  };
+  useEffect(() => {
+    fetchSites();
+  }, []);
 
   useEffect(() => {
-    fetchExpenses();
-    fetchExpenseStats();
-  }, [currentPage, expenseTypeFilter, searchTerm, reportPeriod]);
+    if (sites.length > 0) {
+      fetchExpenses();
+    }
+  }, [currentPage, expenseTypeFilter, searchTerm, sites]);
 
   const handleAddExpense = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -127,6 +166,10 @@ const ExpensesTab: React.FC<ExpensesTabProps> = ({ userId = "user-001" }) => {
       
       const baseAmount = parseFloat(formData.get("amount") as string);
       const expenseType = formData.get("expenseType") as "operational" | "office" | "other";
+      const siteId = formData.get("site") as string;
+      
+      // Find selected site to get its name
+      const selectedSite = sites.find(site => site._id === siteId);
       
       const expenseData = {
         category: formData.get("category") as string,
@@ -135,7 +178,8 @@ const ExpensesTab: React.FC<ExpensesTabProps> = ({ userId = "user-001" }) => {
         date: formData.get("date") as string,
         vendor: formData.get("vendor") as string,
         paymentMethod: formData.get("paymentMethod") as string,
-        site: formData.get("site") as string,
+        site: selectedSite?.name || 'Unknown Site',
+        siteId: siteId,
         expenseType: expenseType,
         createdBy: userId
       };
@@ -154,8 +198,7 @@ const ExpensesTab: React.FC<ExpensesTabProps> = ({ userId = "user-001" }) => {
       if (data.success) {
         toast.success("Expense added successfully");
         setExpenseDialogOpen(false);
-        fetchExpenses(); // Refresh the list
-        fetchExpenseStats(); // Refresh stats
+        fetchExpenses();
       }
     } catch (error) {
       toast.error("Failed to add expense");
@@ -171,6 +214,10 @@ const ExpensesTab: React.FC<ExpensesTabProps> = ({ userId = "user-001" }) => {
       const formData = new FormData(e.currentTarget);
       const baseAmount = parseFloat(formData.get("amount") as string);
       const expenseType = formData.get("expenseType") as "operational" | "office" | "other";
+      const siteId = formData.get("site") as string;
+      
+      // Find selected site to get its name
+      const selectedSite = sites.find(site => site._id === siteId);
       
       const expenseData = {
         category: formData.get("category") as string,
@@ -179,8 +226,10 @@ const ExpensesTab: React.FC<ExpensesTabProps> = ({ userId = "user-001" }) => {
         date: formData.get("date") as string,
         vendor: formData.get("vendor") as string,
         paymentMethod: formData.get("paymentMethod") as string,
-        site: formData.get("site") as string,
-        expenseType: expenseType
+        site: selectedSite?.name || selectedExpense.site,
+        siteId: siteId,
+        expenseType: expenseType,
+        notes: formData.get("notes") as string || undefined
       };
       
       const response = await fetch(`${API_BASE_URL}/expenses/${selectedExpense._id}`, {
@@ -198,8 +247,7 @@ const ExpensesTab: React.FC<ExpensesTabProps> = ({ userId = "user-001" }) => {
         toast.success("Expense updated successfully");
         setExpenseEditDialogOpen(false);
         setSelectedExpense(null);
-        fetchExpenses(); // Refresh the list
-        fetchExpenseStats(); // Refresh stats
+        fetchExpenses();
       }
     } catch (error) {
       toast.error("Failed to update expense");
@@ -220,8 +268,7 @@ const ExpensesTab: React.FC<ExpensesTabProps> = ({ userId = "user-001" }) => {
       const data = await response.json();
       if (data.success) {
         toast.success("Expense deleted successfully");
-        fetchExpenses(); // Refresh the list
-        fetchExpenseStats(); // Refresh stats
+        fetchExpenses();
       }
     } catch (error) {
       toast.error("Failed to delete expense");
@@ -244,7 +291,7 @@ const ExpensesTab: React.FC<ExpensesTabProps> = ({ userId = "user-001" }) => {
       const data = await response.json();
       if (data.success) {
         toast.success("Expense status updated successfully");
-        fetchExpenses(); // Refresh the list
+        fetchExpenses();
       }
     } catch (error) {
       toast.error("Failed to update status");
@@ -264,38 +311,22 @@ const ExpensesTab: React.FC<ExpensesTabProps> = ({ userId = "user-001" }) => {
 
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchTerm(e.target.value);
-    setCurrentPage(1); // Reset to first page on new search
+    setCurrentPage(1);
   };
 
-  const filteredExpenses = expenses; // Now filtered on backend
-
+  const filteredExpenses = expenses;
   const paginatedExpenses = filteredExpenses;
+
+  // Function to find site by name
+  const getSiteByName = (siteName: string) => {
+    return sites.find(site => site.name === siteName);
+  };
 
   return (
     <>
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
-          <div className="flex items-center gap-4">
-            <CardTitle>Expense Management</CardTitle>
-            <div className="flex border rounded-lg">
-              <Button
-                variant={viewMode === "table" ? "default" : "ghost"}
-                size="sm"
-                onClick={() => setViewMode("table")}
-                className="h-8 px-3"
-              >
-                <List className="h-4 w-4" />
-              </Button>
-              <Button
-                variant={viewMode === "card" ? "default" : "ghost"}
-                size="sm"
-                onClick={() => setViewMode("card")}
-                className="h-8 px-3"
-              >
-                <Grid className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
+          <CardTitle>Expense Management</CardTitle>
           <div className="flex gap-2">
             <div className="relative">
               <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -361,11 +392,24 @@ const ExpensesTab: React.FC<ExpensesTabProps> = ({ userId = "user-001" }) => {
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="amount">Amount (₹)</Label>
-                      <Input id="amount" name="amount" type="number" required />
+                      <Input 
+                        id="amount" 
+                        name="amount" 
+                        type="number" 
+                        required 
+                        min="0"
+                        step="0.01"
+                      />
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="date">Date</Label>
-                      <Input id="date" name="date" type="date" required />
+                      <Input 
+                        id="date" 
+                        name="date" 
+                        type="date" 
+                        required 
+                        defaultValue={new Date().toISOString().split('T')[0]}
+                      />
                     </div>
                   </div>
 
@@ -377,16 +421,29 @@ const ExpensesTab: React.FC<ExpensesTabProps> = ({ userId = "user-001" }) => {
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="site">Site</Label>
-                      <Select name="site" required>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select site" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {sites.map(site => (
-                            <SelectItem key={site} value={site}>{site}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      {loadingSites ? (
+                        <div className="flex items-center space-x-2 text-sm text-muted-foreground">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          <span>Loading sites...</span>
+                        </div>
+                      ) : sites.length === 0 ? (
+                        <div className="text-sm text-red-500">
+                          No sites available. Please add sites first.
+                        </div>
+                      ) : (
+                        <Select name="site" required>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select site" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {sites.map(site => (
+                              <SelectItem key={site._id} value={site._id}>
+                                {site.name} - {site.location}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
                     </div>
                   </div>
 
@@ -402,11 +459,27 @@ const ExpensesTab: React.FC<ExpensesTabProps> = ({ userId = "user-001" }) => {
                         <SelectItem value="Credit Card">Credit Card</SelectItem>
                         <SelectItem value="UPI">UPI</SelectItem>
                         <SelectItem value="Cash">Cash</SelectItem>
+                        <SelectItem value="Cheque">Cheque</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
 
-                  <Button type="submit" className="w-full">Add Expense</Button>
+                  <Button 
+                    type="submit" 
+                    className="w-full"
+                    disabled={loadingSites || sites.length === 0}
+                  >
+                    {loadingSites ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Loading Sites...
+                      </>
+                    ) : sites.length === 0 ? (
+                      "No Sites Available"
+                    ) : (
+                      "Add Expense"
+                    )}
+                  </Button>
                 </form>
               </DialogContent>
             </Dialog>
@@ -445,54 +518,6 @@ const ExpensesTab: React.FC<ExpensesTabProps> = ({ userId = "user-001" }) => {
             </Button>
           </div>
 
-          {/* Site-wise Expense Report */}
-          <div className="mb-6">
-            <h3 className="font-semibold mb-3">Site-wise Expense Report ({reportPeriod === "weekly" ? "Weekly" : "Monthly"})</h3>
-            <div className="flex gap-2 mb-4">
-              <Button
-                variant={reportPeriod === "weekly" ? "default" : "outline"}
-                size="sm"
-                onClick={() => setReportPeriod("weekly")}
-              >
-                Weekly
-              </Button>
-              <Button
-                variant={reportPeriod === "monthly" ? "default" : "outline"}
-                size="sm"
-                onClick={() => setReportPeriod("monthly")}
-              >
-                Monthly
-              </Button>
-            </div>
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {sites.map(site => (
-                <Card key={site}>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-sm">{site}</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-2">
-                    <div className="flex justify-between text-sm">
-                      <span>Operational:</span>
-                      <span className="font-medium">{formatCurrency(siteWiseExpenses[site]?.operational || 0)}</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span>Office:</span>
-                      <span className="font-medium">{formatCurrency(siteWiseExpenses[site]?.office || 0)}</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span>Other:</span>
-                      <span className="font-medium">{formatCurrency(siteWiseExpenses[site]?.other || 0)}</span>
-                    </div>
-                    <div className="flex justify-between text-sm border-t pt-2 font-semibold">
-                      <span>Total:</span>
-                      <span>{formatCurrency(siteWiseExpenses[site]?.total || 0)}</span>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </div>
-
           {/* Loading State */}
           {loading && (
             <div className="text-center py-8">
@@ -510,7 +535,7 @@ const ExpensesTab: React.FC<ExpensesTabProps> = ({ userId = "user-001" }) => {
             </div>
           )}
 
-          {!loading && viewMode === "table" && (
+          {!loading && (
             <>
               <Table>
                 <TableHeader>
@@ -527,211 +552,107 @@ const ExpensesTab: React.FC<ExpensesTabProps> = ({ userId = "user-001" }) => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {paginatedExpenses.map((expense) => (
-                    <TableRow key={expense._id}>
-                      <TableCell className="font-medium">{expense.expenseId}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className={getExpenseTypeColor(expense.expenseType)}>
-                          {expense.expenseType}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>{expense.category}</TableCell>
-                      <TableCell className="max-w-xs truncate">{expense.description}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="text-xs">
-                          {expense.site}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="font-semibold">{formatCurrency(expense.amount)}</TableCell>
-                      <TableCell>{new Date(expense.date).toLocaleDateString()}</TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Badge variant={getStatusColor(expense.status)}>
-                            {expense.status}
-                          </Badge>
-                          {expense.status === "pending" && (
-                            <div className="flex gap-1">
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-6 px-2 text-green-600"
-                                onClick={() => handleUpdateStatus(expense._id, "approved")}
-                              >
-                                ✓
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-6 px-2 text-red-600"
-                                onClick={() => handleUpdateStatus(expense._id, "rejected")}
-                              >
-                                ✗
-                              </Button>
-                            </div>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex gap-2">
-                          <Button 
-                            variant="outline" 
-                            size="sm"
-                            onClick={() => handleViewExpense(expense)}
-                          >
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                          <Button 
-                            variant="outline" 
-                            size="sm"
-                            onClick={() => handleEditExpenseClick(expense)}
-                          >
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                          <Button 
-                            variant="outline" 
-                            size="sm"
-                            className="text-red-600 hover:text-red-700"
-                            onClick={() => handleDeleteExpense(expense._id)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-
-              {filteredExpenses.length > 0 && (
-                <div className="flex items-center justify-between mt-4">
-                  <div className="text-sm text-muted-foreground">
-                    Page {currentPage} of {totalPages}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                      disabled={currentPage === 1}
-                    >
-                      <ChevronLeft className="h-4 w-4" />
-                    </Button>
-                    <span className="text-sm">
-                      Page {currentPage} of {totalPages}
-                    </span>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                      disabled={currentPage === totalPages}
-                    >
-                      <ChevronRight className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-
-          {/* Card View */}
-          {!loading && viewMode === "card" && (
-            <>
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {paginatedExpenses.map((expense) => (
-                  <Card key={expense._id} className="hover:shadow-md transition-shadow">
-                    <CardHeader className="pb-3">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <CardTitle className="text-base">{expense.expenseId}</CardTitle>
-                          <p className="text-sm text-muted-foreground">{expense.vendor}</p>
-                        </div>
-                        <div className="flex flex-col items-end gap-1">
-                          <Badge variant={getStatusColor(expense.status)}>
-                            {expense.status}
-                          </Badge>
+                  {paginatedExpenses.length > 0 ? (
+                    paginatedExpenses.map((expense) => (
+                      <TableRow key={expense._id}>
+                        <TableCell className="font-medium">{expense.expenseId}</TableCell>
+                        <TableCell>
                           <Badge variant="outline" className={getExpenseTypeColor(expense.expenseType)}>
                             {expense.expenseType}
                           </Badge>
-                        </div>
-                      </div>
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                      <div className="space-y-2">
-                        <div className="font-medium">{expense.category}</div>
-                        <p className="text-sm text-muted-foreground line-clamp-2">
-                          {expense.description}
-                        </p>
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        Site: {expense.site}
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <div className="text-sm">
-                          <div>Date: {new Date(expense.date).toLocaleDateString()}</div>
-                          <div>Method: {expense.paymentMethod}</div>
-                        </div>
-                        <div className="text-right">
-                          <div className="font-semibold text-lg">{formatCurrency(expense.amount)}</div>
-                          <div className="text-xs text-muted-foreground">
-                            GST: {formatCurrency(expense.gst)}
+                        </TableCell>
+                        <TableCell>{expense.category}</TableCell>
+                        <TableCell className="max-w-xs truncate">{expense.description}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="text-xs">
+                            {expense.site}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="font-semibold">{formatCurrency(expense.amount)}</TableCell>
+                        <TableCell>{new Date(expense.date).toLocaleDateString()}</TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <Badge variant={getStatusColor(expense.status)}>
+                              {expense.status}
+                            </Badge>
+                            {expense.status === "pending" && (
+                              <div className="flex gap-1">
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-6 px-2 text-green-600"
+                                  onClick={() => handleUpdateStatus(expense._id, "approved")}
+                                >
+                                  ✓
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-6 px-2 text-red-600"
+                                  onClick={() => handleUpdateStatus(expense._id, "rejected")}
+                                >
+                                  ✗
+                                </Button>
+                              </div>
+                            )}
                           </div>
-                        </div>
-                      </div>
-                      {expense.status === "pending" && (
-                        <div className="flex gap-2 pt-2">
-                          <Button
-                            size="sm"
-                            className="flex-1 text-green-600 hover:text-green-700"
-                            variant="outline"
-                            onClick={() => handleUpdateStatus(expense._id, "approved")}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex gap-2">
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              onClick={() => handleViewExpense(expense)}
+                            >
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              onClick={() => handleEditExpenseClick(expense)}
+                            >
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              className="text-red-600 hover:text-red-700"
+                              onClick={() => handleDeleteExpense(expense._id)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  ) : (
+                    <TableRow>
+                      <TableCell colSpan={9} className="text-center py-8">
+                        <Receipt className="mx-auto h-12 w-12 text-muted-foreground" />
+                        <h3 className="mt-4 text-lg font-semibold">No expenses found</h3>
+                        <p className="text-muted-foreground">
+                          {searchTerm ? "Try adjusting your search terms" : "Get started by adding your first expense"}
+                        </p>
+                        {!searchTerm && (
+                          <Button 
+                            className="mt-4" 
+                            onClick={() => setExpenseDialogOpen(true)}
+                            disabled={loadingSites || sites.length === 0}
                           >
-                            Approve
+                            <Plus className="mr-2 h-4 w-4" />
+                            Add Expense
                           </Button>
-                          <Button
-                            size="sm"
-                            className="flex-1 text-red-600 hover:text-red-700"
-                            variant="outline"
-                            onClick={() => handleUpdateStatus(expense._id, "rejected")}
-                          >
-                            Reject
-                          </Button>
-                        </div>
-                      )}
-                      <div className="flex gap-2 pt-2">
-                        <Button 
-                          variant="outline" 
-                          size="sm"
-                          className="flex-1"
-                          onClick={() => handleViewExpense(expense)}
-                        >
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                        <Button 
-                          variant="outline" 
-                          size="sm"
-                          className="flex-1"
-                          onClick={() => handleEditExpenseClick(expense)}
-                        >
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button 
-                          variant="outline" 
-                          size="sm"
-                          className="flex-1 text-red-600 hover:text-red-700"
-                          onClick={() => handleDeleteExpense(expense._id)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
 
-              {filteredExpenses.length > 0 && (
+              {paginatedExpenses.length > 0 && (
                 <div className="flex items-center justify-between mt-4">
                   <div className="text-sm text-muted-foreground">
-                    Page {currentPage} of {totalPages}
+                    Showing {paginatedExpenses.length} expenses
                   </div>
                   <div className="flex items-center gap-2">
                     <Button
@@ -757,22 +678,6 @@ const ExpensesTab: React.FC<ExpensesTabProps> = ({ userId = "user-001" }) => {
                 </div>
               )}
             </>
-          )}
-
-          {!loading && filteredExpenses.length === 0 && (
-            <div className="text-center py-8">
-              <Receipt className="mx-auto h-12 w-12 text-muted-foreground" />
-              <h3 className="mt-4 text-lg font-semibold">No expenses found</h3>
-              <p className="text-muted-foreground">
-                {searchTerm ? "Try adjusting your search terms" : "Get started by adding your first expense"}
-              </p>
-              {!searchTerm && (
-                <Button className="mt-4" onClick={() => setExpenseDialogOpen(true)}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Add Expense
-                </Button>
-              )}
-            </div>
           )}
         </CardContent>
       </Card>
@@ -895,6 +800,8 @@ const ExpensesTab: React.FC<ExpensesTabProps> = ({ userId = "user-001" }) => {
                     type="number" 
                     defaultValue={selectedExpense.baseAmount}
                     required 
+                    min="0"
+                    step="0.01"
                   />
                 </div>
                 <div className="space-y-2">
@@ -922,16 +829,29 @@ const ExpensesTab: React.FC<ExpensesTabProps> = ({ userId = "user-001" }) => {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="edit-site">Site</Label>
-                  <Select name="site" defaultValue={selectedExpense.site} required>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {sites.map(site => (
-                        <SelectItem key={site} value={site}>{site}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  {loadingSites ? (
+                    <div className="flex items-center space-x-2 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <span>Loading sites...</span>
+                    </div>
+                  ) : (
+                    <Select 
+                      name="site" 
+                      defaultValue={selectedExpense.siteId || getSiteByName(selectedExpense.site)?._id}
+                      required
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {sites.map(site => (
+                          <SelectItem key={site._id} value={site._id}>
+                            {site.name} - {site.location}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
                 </div>
               </div>
 
@@ -947,6 +867,7 @@ const ExpensesTab: React.FC<ExpensesTabProps> = ({ userId = "user-001" }) => {
                     <SelectItem value="Credit Card">Credit Card</SelectItem>
                     <SelectItem value="UPI">UPI</SelectItem>
                     <SelectItem value="Cash">Cash</SelectItem>
+                    <SelectItem value="Cheque">Cheque</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -973,3 +894,5 @@ const ExpensesTab: React.FC<ExpensesTabProps> = ({ userId = "user-001" }) => {
 };
 
 export default ExpensesTab;
+
+

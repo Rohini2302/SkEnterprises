@@ -1,3 +1,4 @@
+// models/User.ts
 import mongoose, { Schema, Document } from 'mongoose';
 import bcrypt from 'bcryptjs';
 
@@ -5,15 +6,16 @@ export interface IUser extends Document {
   name: string;
   email: string;
   password: string;
-  role: string;
+  role: 'superadmin' | 'admin' | 'manager' | 'supervisor' | 'employee';
   username: string;
   firstName: string;
   lastName: string;
-  department?: string;
+  department: string;
   site: string;
-  phone?: string;
+  phone: string;
   isActive: boolean;
   joinDate: Date;
+  createdBy?: mongoose.Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
   comparePassword(candidatePassword: string): Promise<boolean>;
@@ -22,7 +24,7 @@ export interface IUser extends Document {
 const UserSchema = new Schema({
   name: {
     type: String,
-    required: false, // Make it optional since we'll auto-generate it
+    required: false,
     trim: true
   },
   email: {
@@ -76,6 +78,10 @@ const UserSchema = new Schema({
   joinDate: {
     type: Date,
     default: Date.now
+  },
+  createdBy: {
+    type: Schema.Types.ObjectId,
+    ref: 'User'
   }
 }, {
   timestamps: true
@@ -94,16 +100,10 @@ UserSchema.pre('save', async function(next) {
   }
 });
 
-// Auto-generate name from firstName and lastName if not provided
+// Auto-generate name from firstName and lastName
 UserSchema.pre('save', function(next) {
-  if (!this.name) {
-    if (this.firstName || this.lastName) {
-      this.name = `${this.firstName || ''} ${this.lastName || ''}`.trim();
-    } else if (this.username) {
-      this.name = this.username;
-    } else {
-      this.name = this.email.split('@')[0];
-    }
+  if (!this.name && (this.firstName || this.lastName)) {
+    this.name = `${this.firstName || ''} ${this.lastName || ''}`.trim();
   }
   next();
 });
@@ -114,12 +114,13 @@ UserSchema.methods.comparePassword = async function(candidatePassword: string): 
 };
 
 // Remove password when converting to JSON
-UserSchema.methods.toJSON = function() {
-  const user = this.toObject();
-  delete user.password;
-  delete user.__v;
-  return user;
-};
+UserSchema.set('toJSON', {
+  transform: function(doc, ret) {
+    delete ret.password;
+    delete ret.__v;
+    return ret;
+  }
+});
 
 export const User = mongoose.model<IUser>("User", UserSchema);
-export default User; // ✅ Add this line for default export
+export default User;

@@ -4,6 +4,7 @@ import { toast } from "sonner";
 export type UserRole = "superadmin" | "admin" | "manager" | "supervisor" | "employee" | null;
 
 interface User {
+  contactNumber: any;
   _id: string;
   id: string;
   name: string;

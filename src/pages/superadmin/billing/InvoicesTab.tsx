@@ -1,4 +1,5 @@
-import { useState } from "react";
+
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -6,23 +7,40 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Eye, Download, Search, ChevronLeft, ChevronRight, List, Grid, FileText, Receipt } from "lucide-react";
+import { 
+  Plus, 
+  Eye, 
+  Download, 
+  Search, 
+  ChevronLeft, 
+  ChevronRight, 
+  List, 
+  Grid, 
+  FileText, 
+  Receipt,
+  Trash2,
+  Loader2,
+  AlertCircle,
+  RefreshCw
+} from "lucide-react";
 import { Invoice, getServiceIcon, getStatusColor, formatCurrency } from "../Billing";
 import { PerformInvoiceForm } from "./PerformInvoiceForm";
 import { TaxInvoiceForm } from "./TaxInvoiceForm";
 import jsPDF from "jspdf";
+import InvoiceService from "../../../services/invoiceService";
 
 interface InvoicesTabProps {
-  invoices: Invoice[];
-  onInvoiceCreate: (invoice: Invoice) => void;
-  onMarkAsPaid: (invoiceId: string) => void;
+  onInvoiceCreate?: (invoice: Invoice) => void;
+  onMarkAsPaid?: (invoiceId: string) => void;
 }
 
 const InvoicesTab: React.FC<InvoicesTabProps> = ({
-  invoices,
   onInvoiceCreate,
   onMarkAsPaid
 }) => {
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [performInvoiceDialogOpen, setPerformInvoiceDialogOpen] = useState(false);
   const [taxInvoiceDialogOpen, setTaxInvoiceDialogOpen] = useState(false);
   const [previewDialogOpen, setPreviewDialogOpen] = useState(false);
@@ -31,14 +49,126 @@ const InvoicesTab: React.FC<InvoicesTabProps> = ({
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(10);
+  const [deletingInvoiceId, setDeletingInvoiceId] = useState<string | null>(null);
+  const [markingAsPaidId, setMarkingAsPaidId] = useState<string | null>(null);
+
+  // Fetch invoices on component mount
+  useEffect(() => {
+    fetchInvoices();
+  }, []);
 
   // Format date to DD-MMM-YY
   const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    const day = date.getDate();
-    const month = date.toLocaleString('en-US', { month: 'short' });
-    const year = date.getFullYear().toString().slice(-2);
-    return `${day}-${month}-${year}`;
+    try {
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) {
+        // If it's already in DD-MMM-YY format, return as is
+        if (dateString.match(/\d{2}-[A-Za-z]{3}-\d{2}/)) {
+          return dateString;
+        }
+        return dateString;
+      }
+      const day = date.getDate().toString().padStart(2, '0');
+      const month = date.toLocaleString('en-US', { month: 'short' });
+      const year = date.getFullYear().toString().slice(-2);
+      return `${day}-${month}-${year}`;
+    } catch (error) {
+      return dateString;
+    }
+  };
+
+  const fetchInvoices = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await InvoiceService.getAllInvoices();
+      setInvoices(data);
+    } catch (err: any) {
+      setError(err.message || 'Failed to fetch invoices');
+      console.error('Error fetching invoices:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Handle creating a new invoice
+  const handleCreateInvoice = async (invoice: Invoice) => {
+    try {
+      const newInvoice = await InvoiceService.createInvoice(invoice);
+      setInvoices(prev => [newInvoice, ...prev]);
+      
+      // Call the parent callback if provided
+      if (onInvoiceCreate) {
+        onInvoiceCreate(newInvoice);
+      }
+      
+      // Show success message
+      alert('Invoice created successfully!');
+      return true;
+    } catch (err: any) {
+      alert(`Failed to create invoice: ${err.message}`);
+      console.error('Error creating invoice:', err);
+      return false;
+    }
+  };
+
+  // Handle marking invoice as paid
+  const handleMarkAsPaid = async (invoiceId: string) => {
+    try {
+      setMarkingAsPaidId(invoiceId);
+      const updatedInvoice = await InvoiceService.markAsPaid(invoiceId);
+      
+      // Update local state
+      setInvoices(prev => 
+        prev.map(invoice => 
+          invoice.id === invoiceId ? updatedInvoice : invoice
+        )
+      );
+      
+      // Call the parent callback if provided
+      if (onMarkAsPaid) {
+        onMarkAsPaid(invoiceId);
+      }
+      
+      // Close preview if open
+      if (previewDialogOpen) {
+        setPreviewDialogOpen(false);
+      }
+      
+      // Show success message
+      alert('Invoice marked as paid!');
+    } catch (err: any) {
+      alert(`Failed to mark invoice as paid: ${err.message}`);
+      console.error('Error marking invoice as paid:', err);
+    } finally {
+      setMarkingAsPaidId(null);
+    }
+  };
+
+  // Handle deleting an invoice
+  const handleDeleteInvoice = async (invoiceId: string) => {
+    if (!window.confirm('Are you sure you want to delete this invoice? This action cannot be undone.')) {
+      return;
+    }
+
+    try {
+      setDeletingInvoiceId(invoiceId);
+      await InvoiceService.deleteInvoice(invoiceId);
+      setInvoices(prev => prev.filter(invoice => invoice.id !== invoiceId));
+      
+      // Close preview if open and showing the deleted invoice
+      if (previewDialogOpen && selectedInvoice?.id === invoiceId) {
+        setPreviewDialogOpen(false);
+        setSelectedInvoice(null);
+      }
+      
+      alert('Invoice deleted successfully!');
+    } catch (err: any) {
+      alert(`Failed to delete invoice: ${err.message}`);
+      console.error('Error deleting invoice:', err);
+    } finally {
+      setDeletingInvoiceId(null);
+    }
   };
 
   // Generate Sales Order PDF for existing invoices
@@ -266,8 +396,6 @@ const InvoicesTab: React.FC<InvoicesTabProps> = ({
       yPos += 6;
 
       // ==================== ITEMS TABLE ROWS ====================
-      // CHECKPOINT: This is where we need to handle the unit display
-      // The invoice items should have a 'unit' property
       invoice.items.forEach((item, index) => {
         // Check for page break
         if (yPos > pageHeight - 50) {
@@ -296,7 +424,6 @@ const InvoicesTab: React.FC<InvoicesTabProps> = ({
         let unit = "No";
         
         // Extract unit from description or use item.unit if available
-        // First check if item has a unit property (for newly created invoices)
         if ((item as any).unit) {
           unit = (item as any).unit;
         } else {
@@ -674,7 +801,7 @@ const InvoicesTab: React.FC<InvoicesTabProps> = ({
                   <TableHead className="min-w-[100px]">Status</TableHead>
                   <TableHead className="min-w-[100px]">Date</TableHead>
                   <TableHead className="min-w-[100px]">Type</TableHead>
-                  <TableHead className="min-w-[120px]">Actions</TableHead>
+                  <TableHead className="min-w-[150px]">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -697,7 +824,7 @@ const InvoicesTab: React.FC<InvoicesTabProps> = ({
                         {invoice.status}
                       </Badge>
                     </TableCell>
-                    <TableCell>{invoice.date}</TableCell>
+                    <TableCell>{formatDate(invoice.date)}</TableCell>
                     <TableCell>
                       <Badge variant={invoice.invoiceType === "tax" ? "secondary" : "outline"}>
                         {invoice.invoiceType === "tax" ? "Tax" : "Sales"}
@@ -713,6 +840,7 @@ const InvoicesTab: React.FC<InvoicesTabProps> = ({
                             setPreviewDialogOpen(true);
                           }}
                           className="h-8 px-2"
+                          disabled={deletingInvoiceId === invoice.id}
                         >
                           <Eye className="h-4 w-4" />
                         </Button>
@@ -721,6 +849,7 @@ const InvoicesTab: React.FC<InvoicesTabProps> = ({
                           size="sm"
                           onClick={() => handleDownloadInvoice(invoice)}
                           className="h-8 px-2"
+                          disabled={deletingInvoiceId === invoice.id}
                         >
                           <Download className="h-4 w-4" />
                         </Button>
@@ -728,12 +857,30 @@ const InvoicesTab: React.FC<InvoicesTabProps> = ({
                           <Button 
                             variant="outline" 
                             size="sm"
-                            onClick={() => onMarkAsPaid(invoice.id)}
+                            onClick={() => handleMarkAsPaid(invoice.id)}
                             className="h-8 px-2"
+                            disabled={markingAsPaidId === invoice.id || deletingInvoiceId === invoice.id}
                           >
-                            Mark Paid
+                            {markingAsPaidId === invoice.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              "Mark Paid"
+                            )}
                           </Button>
                         )}
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          onClick={() => handleDeleteInvoice(invoice.id)}
+                          className="h-8 px-2 text-red-600 hover:text-red-700 hover:bg-red-50"
+                          disabled={deletingInvoiceId === invoice.id}
+                        >
+                          {deletingInvoiceId === invoice.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-4 w-4" />
+                          )}
+                        </Button>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -802,7 +949,7 @@ const InvoicesTab: React.FC<InvoicesTabProps> = ({
                 <CardContent className="space-y-3">
                   <div className="text-sm">
                     <div className="font-medium">Voucher: {invoice.voucherNo || invoice.id}</div>
-                    <div>Date: {invoice.date}</div>
+                    <div>Date: {formatDate(invoice.date)}</div>
                   </div>
                   <div className="flex justify-between items-center">
                     <div className="text-sm">
@@ -824,6 +971,7 @@ const InvoicesTab: React.FC<InvoicesTabProps> = ({
                         setSelectedInvoice(invoice);
                         setPreviewDialogOpen(true);
                       }}
+                      disabled={deletingInvoiceId === invoice.id}
                     >
                       <Eye className="h-4 w-4" />
                     </Button>
@@ -832,6 +980,7 @@ const InvoicesTab: React.FC<InvoicesTabProps> = ({
                       size="sm"
                       className="flex-1 h-8"
                       onClick={() => handleDownloadInvoice(invoice)}
+                      disabled={deletingInvoiceId === invoice.id}
                     >
                       <Download className="h-4 w-4" />
                     </Button>
@@ -840,11 +989,29 @@ const InvoicesTab: React.FC<InvoicesTabProps> = ({
                         variant="outline" 
                         size="sm"
                         className="flex-1 h-8"
-                        onClick={() => onMarkAsPaid(invoice.id)}
+                        onClick={() => handleMarkAsPaid(invoice.id)}
+                        disabled={markingAsPaidId === invoice.id || deletingInvoiceId === invoice.id}
                       >
-                        Mark Paid
+                        {markingAsPaidId === invoice.id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          "Mark Paid"
+                        )}
                       </Button>
                     )}
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      className="flex-1 h-8 text-red-600 hover:text-red-700 hover:bg-red-50"
+                      onClick={() => handleDeleteInvoice(invoice.id)}
+                      disabled={deletingInvoiceId === invoice.id}
+                    >
+                      {deletingInvoiceId === invoice.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-4 w-4" />
+                      )}
+                    </Button>
                   </div>
                 </CardContent>
               </Card>
@@ -909,6 +1076,39 @@ const InvoicesTab: React.FC<InvoicesTabProps> = ({
     );
   };
 
+  // Loading state
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto" />
+          <p className="mt-4 text-muted-foreground">Loading invoices...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <AlertCircle className="h-12 w-12 text-red-500 mx-auto" />
+          <h3 className="mt-4 text-lg font-semibold">Failed to load invoices</h3>
+          <p className="text-red-600 mt-2">{error}</p>
+          <Button 
+            variant="outline" 
+            onClick={fetchInvoices}
+            className="mt-4"
+          >
+            <RefreshCw className="mr-2 h-4 w-4" />
+            Retry
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <>
       <Card>
@@ -933,6 +1133,14 @@ const InvoicesTab: React.FC<InvoicesTabProps> = ({
                 <Grid className="h-4 w-4" />
               </Button>
             </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={fetchInvoices}
+              className="h-8"
+            >
+              <RefreshCw className="h-4 w-4" />
+            </Button>
           </div>
           <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
             <div className="relative w-full sm:w-64">
@@ -941,7 +1149,10 @@ const InvoicesTab: React.FC<InvoicesTabProps> = ({
                 placeholder="Search invoices..."
                 className="pl-8 w-full"
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={(e) => {
+                  setSearchTerm(e.target.value);
+                  setCurrentPage(1);
+                }}
               />
             </div>
             
@@ -1029,14 +1240,14 @@ const InvoicesTab: React.FC<InvoicesTabProps> = ({
       <PerformInvoiceForm
         isOpen={performInvoiceDialogOpen}
         onClose={() => setPerformInvoiceDialogOpen(false)}
-        onInvoiceCreate={onInvoiceCreate}
+        onInvoiceCreate={handleCreateInvoice}
         performInvoicesCount={performInvoices.length}
       />
 
       <TaxInvoiceForm
         isOpen={taxInvoiceDialogOpen}
         onClose={() => setTaxInvoiceDialogOpen(false)}
-        onInvoiceCreate={onInvoiceCreate}
+        onInvoiceCreate={handleCreateInvoice}
         taxInvoicesCount={taxInvoices.length}
       />
 
@@ -1074,15 +1285,15 @@ const InvoicesTab: React.FC<InvoicesTabProps> = ({
                 <div className="space-y-2">
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Invoice Date:</span>
-                    <span className="font-medium">{selectedInvoice.date}</span>
+                    <span className="font-medium">{formatDate(selectedInvoice.date)}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Due Date:</span>
-                    <span className="font-medium">{selectedInvoice.dueDate}</span>
+                    <span className="font-medium">{selectedInvoice.dueDate ? formatDate(selectedInvoice.dueDate) : 'N/A'}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Service Type:</span>
-                    <span className="font-medium">{selectedInvoice.serviceType}</span>
+                    <span className="font-medium">{selectedInvoice.serviceType || 'N/A'}</span>
                   </div>
                   {selectedInvoice.buyerRef && (
                     <div className="flex justify-between">
@@ -1133,11 +1344,19 @@ const InvoicesTab: React.FC<InvoicesTabProps> = ({
                     <Button 
                       variant="outline" 
                       onClick={() => {
-                        onMarkAsPaid(selectedInvoice.id);
+                        handleMarkAsPaid(selectedInvoice.id);
                         setPreviewDialogOpen(false);
                       }}
+                      disabled={markingAsPaidId === selectedInvoice.id}
                     >
-                      Mark as Paid
+                      {markingAsPaidId === selectedInvoice.id ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Marking as Paid...
+                        </>
+                      ) : (
+                        "Mark as Paid"
+                      )}
                     </Button>
                   )}
                 </div>
@@ -1150,7 +1369,7 @@ const InvoicesTab: React.FC<InvoicesTabProps> = ({
                   {selectedInvoice.invoiceType === "tax" ? (
                     <>
                       <div className="flex justify-between gap-8">
-                        <span>Management Fees ({selectedInvoice.managementFeesPercent}%):</span>
+                        <span>Management Fees ({selectedInvoice.managementFeesPercent || 5}%):</span>
                         <span>{formatCurrency(selectedInvoice.managementFeesAmount || 0)}</span>
                       </div>
                       <div className="flex justify-between gap-8">
@@ -1198,6 +1417,29 @@ const InvoicesTab: React.FC<InvoicesTabProps> = ({
                 >
                   Close Preview
                 </Button>
+                <Button 
+                  variant="destructive"
+                  className="flex-1"
+                  onClick={() => {
+                    if (window.confirm('Are you sure you want to delete this invoice?')) {
+                      handleDeleteInvoice(selectedInvoice.id);
+                      setPreviewDialogOpen(false);
+                    }
+                  }}
+                  disabled={deletingInvoiceId === selectedInvoice.id}
+                >
+                  {deletingInvoiceId === selectedInvoice.id ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Deleting...
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      Delete Invoice
+                    </>
+                  )}
+                </Button>
               </div>
             </div>
           )}
@@ -1208,3 +1450,5 @@ const InvoicesTab: React.FC<InvoicesTabProps> = ({
 };
 
 export default InvoicesTab;
+
+

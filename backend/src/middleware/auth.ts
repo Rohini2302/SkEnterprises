@@ -50,8 +50,8 @@ export const auth = async (req: Request, res: Response, next: NextFunction) => {
   }
 };
 
-// Role-based middleware (optional)
-export const requireRole = (...roles: string[]) => {
+// Role-based authorization middleware
+export const authorize = (...roles: string[]) => {
   return (req: Request, res: Response, next: NextFunction) => {
     if (!req.user) {
       return res.status(401).json({ 
@@ -70,3 +70,6 @@ export const requireRole = (...roles: string[]) => {
     next();
   };
 };
+
+// Alias for backward compatibility (if you still need requireRole)
+export const requireRole = authorize;

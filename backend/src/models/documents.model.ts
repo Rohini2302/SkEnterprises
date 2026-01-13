@@ -1,7 +1,29 @@
-// models/Documents.model.ts
-import mongoose from 'mongoose';
+// src/models/documents.model.ts
+import mongoose, { Schema, Document as MongooseDocument } from 'mongoose';
 
-const documentSchema = new mongoose.Schema({
+// Define the interface
+export interface IDocument extends MongooseDocument {
+  cloudinaryPublicId: any;
+  url: string;
+  public_id: string;
+  originalname: string;
+  mimetype: string;
+  size: number;
+  folder: string;
+  // ✅ UPDATED: Added all frontend categories to enum
+  category: 'image' | 'document' | 'spreadsheet' | 'presentation' | 'other' | 'uploaded' | 'generated' | 'template';
+  uploadedBy?: mongoose.Types.ObjectId;
+  description?: string;
+  tags: string[];
+  isArchived: boolean;
+  uploadedAt: Date;
+  lastAccessed: Date;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// Define the schema
+const documentSchema = new Schema<IDocument>({
   url: {
     type: String,
     required: true,
@@ -21,9 +43,14 @@ const documentSchema = new mongoose.Schema({
     type: String,
     required: true,
     enum: [
-      'image/jpeg', 'image/png', 'image/gif', 'image/webp',
-      'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      'text/plain', 'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml',
+      'application/pdf', 
+      'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'text/plain', 'text/html',
+      'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/vnd.ms-powerpoint', 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      'application/zip', 'application/x-zip-compressed',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.template'
     ]
   },
   size: {
@@ -36,14 +63,15 @@ const documentSchema = new mongoose.Schema({
     default: 'documents',
     trim: true
   },
+  // ✅ UPDATED: Added all frontend categories to enum
   category: {
     type: String,
-    enum: ['image', 'document', 'spreadsheet', 'presentation', 'other'],
+    enum: ['image', 'document', 'spreadsheet', 'presentation', 'other', 'uploaded', 'generated', 'template'],
     default: 'document'
   },
   uploadedBy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User', // Reference to User model if you have one
+    type: Schema.Types.ObjectId,
+    ref: 'User',
     default: null
   },
   description: {
@@ -68,32 +96,43 @@ const documentSchema = new mongoose.Schema({
     default: Date.now
   }
 }, {
-  timestamps: true // Adds createdAt and updatedAt automatically
+  timestamps: true
 });
 
-// Add indexes for better query performance
+// Add indexes
 documentSchema.index({ folder: 1, uploadedAt: -1 });
 documentSchema.index({ mimetype: 1 });
 documentSchema.index({ category: 1 });
 documentSchema.index({ tags: 1 });
 documentSchema.index({ uploadedBy: 1 });
+documentSchema.index({ isArchived: 1 });
 
-// Middleware to update category based on mimetype
-documentSchema.pre('save', function(next) {
+// Middleware to auto-set category based on mimetype if not already set
+documentSchema.pre<IDocument>('save', function(next) {
   const doc = this;
   
-  if (doc.mimetype.startsWith('image/')) {
-    doc.category = 'image';
-  } else if (doc.mimetype === 'application/pdf') {
-    doc.category = 'document';
-  } else if (doc.mimetype.includes('spreadsheet')) {
-    doc.category = 'spreadsheet';
-  } else if (doc.mimetype.includes('presentation')) {
-    doc.category = 'presentation';
+  // Only auto-determine category if it's not explicitly set to a frontend value
+  if (!doc.category || !['uploaded', 'generated', 'template'].includes(doc.category)) {
+    if (doc.mimetype.startsWith('image/')) {
+      doc.category = 'image';
+    } else if (doc.mimetype === 'application/pdf' || 
+               doc.mimetype.includes('text') || 
+               doc.mimetype.includes('word') || 
+               doc.mimetype.includes('document')) {
+      doc.category = 'document';
+    } else if (doc.mimetype.includes('spreadsheet') || doc.mimetype.includes('excel')) {
+      doc.category = 'spreadsheet';
+    } else if (doc.mimetype.includes('presentation') || doc.mimetype.includes('powerpoint')) {
+      doc.category = 'presentation';
+    } else {
+      doc.category = 'other';
+    }
   }
   
   next();
 });
 
-const Document = mongoose.model('Document', documentSchema);
+// Create and export the model
+const Document = mongoose.model<IDocument>('Document', documentSchema);
+
 export default Document;

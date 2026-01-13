@@ -1,3 +1,4 @@
+
 import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IClient extends Document {
@@ -12,6 +13,8 @@ export interface IClient extends Document {
   gstNumber?: string;
   contactPerson?: string;
   contactPersonPhone?: string;
+  value: string;
+  industry: string;
   status: 'active' | 'inactive';
   notes?: string;
   createdAt: Date;
@@ -49,7 +52,8 @@ const ClientSchema: Schema = new Schema(
     },
     city: {
       type: String,
-      trim: true
+      trim: true,
+      default: 'Mumbai'
     },
     state: {
       type: String,
@@ -71,6 +75,17 @@ const ClientSchema: Schema = new Schema(
     contactPersonPhone: {
       type: String,
       trim: true
+    },
+    value: {
+      type: String,
+      required: [true, 'Value is required'],
+      trim: true
+    },
+    industry: {
+      type: String,
+      required: [true, 'Industry is required'],
+      trim: true,
+      default: 'IT Services'
     },
     status: {
       type: String,
@@ -94,6 +109,9 @@ ClientSchema.index({ name: 1 });
 ClientSchema.index({ company: 1 });
 ClientSchema.index({ email: 1 }, { unique: true });
 ClientSchema.index({ status: 1 });
+ClientSchema.index({ industry: 1 });
+ClientSchema.index({ value: 1 });
 ClientSchema.index({ city: 1 });
 
 export default mongoose.model<IClient>('Client', ClientSchema);
+

@@ -1,12 +1,20 @@
+// models/Site.js
 import mongoose, { Schema, Document } from 'mongoose';
 
 export interface ISite extends Document {
   // Basic Information
   name: string;
-  clientId?: string; // Added this field
+  clientId?: string;
   clientName: string;
   location: string;
   areaSqft: number;
+  
+  // Manager
+  manager?: string;
+  
+  // NEW: Manager and Supervisor Limits
+  managerCount: number; // ADD THIS
+  supervisorCount: number; // ADD THIS
   
   // Services
   services: string[];
@@ -40,7 +48,7 @@ const SiteSchema: Schema = new Schema(
     clientId: {
       type: String,
       trim: true,
-      default: undefined // This helps avoid storing empty strings
+      default: undefined
     },
     clientName: {
       type: String,
@@ -56,6 +64,24 @@ const SiteSchema: Schema = new Schema(
       type: Number,
       required: [true, 'Area is required'],
       min: [1, 'Area must be greater than 0']
+    },
+    
+    manager: {
+      type: String,
+      trim: true,
+      default: undefined
+    },
+    
+    // NEW FIELDS: Manager and Supervisor Limits
+    managerCount: { // ADD THIS
+      type: Number,
+      default: 0,
+      min: [0, 'Manager count cannot be negative']
+    },
+    supervisorCount: { // ADD THIS
+      type: Number,
+      default: 0,
+      min: [0, 'Supervisor count cannot be negative']
     },
     
     // Services
@@ -135,6 +161,22 @@ SiteSchema.index({ location: 'text' });
 // Virtual for total staff count
 SiteSchema.virtual('totalStaff').get(function(this: ISite) {
   return this.staffDeployment.reduce((total, item) => total + item.count, 0);
+});
+
+// NEW: Virtual for available manager slots
+SiteSchema.virtual('availableManagerSlots').get(function(this: ISite) {
+  const currentManagers = this.staffDeployment
+    .filter(item => item.role === 'Manager')
+    .reduce((total, item) => total + item.count, 0);
+  return Math.max(0, this.managerCount - currentManagers);
+});
+
+// NEW: Virtual for available supervisor slots
+SiteSchema.virtual('availableSupervisorSlots').get(function(this: ISite) {
+  const currentSupervisors = this.staffDeployment
+    .filter(item => item.role === 'Supervisor')
+    .reduce((total, item) => total + item.count, 0);
+  return Math.max(0, this.supervisorCount - currentSupervisors);
 });
 
 export default mongoose.model<ISite>('Site', SiteSchema);

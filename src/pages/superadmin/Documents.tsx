@@ -25,13 +25,21 @@ interface Document {
   size: string;
   uploadedBy: string;
   date: string;
-  category: "uploaded" | "generated" | "template";
+  category: "uploaded" | "generated" | "template" | "image" | "document" | "spreadsheet" | "presentation" | "other";
   description?: string;
   cloudinaryData?: {
     url: string;
     publicId: string;
     format: string;
   };
+}
+
+interface GeneratedDocument {
+  name: string;
+  type: "PDF" | "XLSX" | "DOCX" | "JPG" | "PNG" | "OTHER";
+  size: string;
+  category: "generated";
+  description?: string;
 }
 
 interface Template {
@@ -225,11 +233,24 @@ const StatsCards = () => {
         const result = await documentService.getDocuments();
         if (result.success && result.data) {
           const documents = result.data;
+          // Map backend categories to frontend categories
+          const uploadedCount = documents.filter((d: DocumentData) => 
+            d.category === "document" || d.category === "image" || d.category === "spreadsheet" || d.category === "presentation" || d.category === "other" || d.category === "uploaded"
+          ).length;
+          
           setStats({
             total: documents.length,
-            uploaded: documents.filter((d: DocumentData) => d.category === "uploaded").length,
+            uploaded: uploadedCount,
             templates: documents.filter((d: DocumentData) => d.category === "template").length,
             generated: documents.filter((d: DocumentData) => d.category === "generated").length
+          });
+        } else {
+          // Fallback to initial documents
+          setStats({
+            total: initialDocuments.length,
+            uploaded: initialDocuments.filter(d => d.category === "uploaded").length,
+            templates: initialDocuments.filter(d => d.category === "template").length,
+            generated: initialDocuments.filter(d => d.category === "generated").length
           });
         }
       } catch (error) {
@@ -268,39 +289,72 @@ const AllDocumentsSection = () => {
 
   // Fetch documents from backend
   const fetchDocuments = async () => {
+    console.log("📥 Starting to fetch documents...");
     setIsRefreshing(true);
     setIsLoading(true);
     try {
       const result = await documentService.getDocuments();
+      console.log("📥 Fetch result:", result);
       
       if (result.success && result.data) {
+        console.log(`📥 Found ${result.data.length} documents from backend`);
         // Transform the backend data to match your Document type
-        const formattedDocuments: Document[] = result.data.map((doc: DocumentData) => ({
-          id: doc.id,
-          name: doc.name,
-          type: documentService.getFileType(doc.format || doc.name.split('.').pop() || ''),
-          size: doc.size,
-          uploadedBy: doc.uploadedBy || "Unknown",
-          date: doc.date || new Date().toISOString().split('T')[0],
-          category: doc.category,
-          description: doc.description,
-          cloudinaryData: {
-            url: doc.url,
-            publicId: doc.publicId,
-            format: doc.format
+        const formattedDocuments: Document[] = result.data.map((doc: DocumentData) => {
+          console.log("📝 Processing document:", doc.originalname);
+          
+          // Map backend category to frontend category
+          let frontendCategory: "uploaded" | "generated" | "template" | "image" | "document" | "spreadsheet" | "presentation" | "other" = "uploaded";
+          
+          if (doc.category === "template") {
+            frontendCategory = "template";
+          } else if (doc.category === "generated") {
+            frontendCategory = "generated";
+          } else if (doc.category === "image") {
+            frontendCategory = "image";
+          } else if (doc.category === "document") {
+            frontendCategory = "document";
+          } else if (doc.category === "spreadsheet") {
+            frontendCategory = "spreadsheet";
+          } else if (doc.category === "presentation") {
+            frontendCategory = "presentation";
+          } else if (doc.category === "other") {
+            frontendCategory = "other";
+          } else if (doc.category === "uploaded") {
+            frontendCategory = "uploaded";
           }
-        }));
+          
+          return {
+            id: doc._id || doc.id || "",
+            name: doc.originalname || doc.name || "Unnamed Document",
+            type: documentService.getFileType(doc.mimetype?.split('/')[1] || doc.originalname?.split('.').pop() || doc.name?.split('.').pop() || ''),
+            size: documentService.formatFileSize(doc.size || 0),
+            uploadedBy: "Admin", // You can update this when you add authentication
+            date: doc.createdAt ? new Date(doc.createdAt).toISOString().split('T')[0] : 
+                  doc.date ? new Date(doc.date).toISOString().split('T')[0] : 
+                  new Date().toISOString().split('T')[0],
+            category: frontendCategory,
+            description: doc.description,
+            cloudinaryData: {
+              url: doc.url || "",
+              publicId: doc.public_id || "",
+              format: doc.mimetype?.split('/')[1] || 'unknown'
+            }
+          };
+        });
         
+        console.log(`✅ Formatted ${formattedDocuments.length} documents`);
         setDocuments(formattedDocuments);
       } else {
-        // Fallback to initial documents if fetch fails
+        console.warn("⚠️ Using fallback documents:", result.message);
         setDocuments(initialDocuments);
-        toast.error(result.message || "Failed to load documents");
+        if (result.message) {
+          toast.error(result.message || "Failed to load documents");
+        }
       }
     } catch (error) {
-      console.error("Error fetching documents:", error);
+      console.error("🔥 Error fetching documents:", error);
       setDocuments(initialDocuments); // Fallback
-      toast.error("Unable to connect to server");
+      toast.error("Unable to connect to server. Using demo data.");
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
@@ -322,7 +376,7 @@ const AllDocumentsSection = () => {
       const documentName = formData.get("document-name") as string;
       const description = formData.get("description") as string;
       const folder = formData.get("folder") as string || "documents";
-      const documentType = formData.get("document-type") as string;
+      const category = formData.get("category") as string || "uploaded"; // Get category
       
       if (!fileInput.files || fileInput.files.length === 0) {
         toast.error("Please select a file to upload");
@@ -331,31 +385,34 @@ const AllDocumentsSection = () => {
       }
 
       const file = fileInput.files[0];
-      const fileSize = documentService.formatFileSize(file.size);
-      const fileExtension = documentService.getFileExtension(file.name);
-      const fileType = documentService.getFileType(fileExtension);
+      console.log("📤 Starting upload process...", {
+        fileName: file.name,
+        fileSize: file.size,
+        documentName: documentName,
+        folder: folder,
+        category: category,
+        description: description
+      });
 
-      // Upload to backend/Cloudinary
-      const uploadResult = await documentService.uploadDocument(file, folder);
+      // Upload to Cloudinary AND save to database in ONE step
+      // The uploadSingle endpoint handles both Cloudinary upload and database save
+      const uploadResult = await documentService.uploadDocument(
+        file, 
+        folder, 
+        description || undefined,
+        category // Pass category to upload
+      );
       
-      if (uploadResult.success) {
-        // Save document metadata to database
-        try {
-          await documentService.saveDocumentMetadata({
-            name: documentName || file.name,
-            url: uploadResult.data.url,
-            publicId: uploadResult.data.publicId,
-            format: uploadResult.data.format,
-            size: fileSize,
-            category: "uploaded" as const,
-            description: description,
-            folder: folder
-          });
-        } catch (metadataError) {
-          console.error("Failed to save metadata:", metadataError);
-          // Continue even if metadata save fails
-        }
-
+      console.log("📤 Upload result:", uploadResult);
+      
+      if (uploadResult.success && uploadResult.data) {
+        console.log("✅ Document uploaded and saved:", {
+          documentId: uploadResult.data.documentId,
+          publicId: uploadResult.data.public_id,
+          url: uploadResult.data.url,
+          category: uploadResult.data.category
+        });
+        
         // Refresh the documents list
         await fetchDocuments();
         
@@ -363,11 +420,15 @@ const AllDocumentsSection = () => {
         setUploadDialogOpen(false);
         (e.target as HTMLFormElement).reset();
       } else {
+        console.error("❌ Upload failed:", uploadResult.message);
         toast.error(uploadResult.message || "Upload failed");
       }
     } catch (error: any) {
-      console.error("Upload error:", error);
-      toast.error(error.response?.data?.message || "Failed to upload document. Please check your backend connection.");
+      console.error("🔥 Upload error:", error);
+      const errorMessage = error instanceof Error 
+        ? error.message 
+        : "Failed to upload document. Please check your backend connection.";
+      toast.error(errorMessage);
     } finally {
       setIsUploading(false);
     }
@@ -375,23 +436,40 @@ const AllDocumentsSection = () => {
 
   const handleDeleteDocument = async (docId: string, doc: Document) => {
     try {
-      // If document has Cloudinary data, delete from Cloudinary too
-      if (doc.cloudinaryData?.publicId) {
-        await documentService.deleteDocument(doc.cloudinaryData.publicId);
+      console.log("🗑️ Deleting document:", { docId, documentName: doc.name });
+      
+      // Check if it's a real MongoDB ID or a dummy ID
+      const isRealMongoId = docId && (docId.length === 24 || /^[0-9a-fA-F]{24}$/.test(docId));
+      
+      if (!isRealMongoId) {
+        // It's a dummy document from initialDocuments array
+        console.log("🗑️ Deleting dummy document from local state");
+        setDocuments(prev => prev.filter(d => d.id !== docId));
+        toast.success("Document removed from local state");
+        return;
       }
       
-      // Refresh the documents list
-      await fetchDocuments();
+      // Delete from backend (which will delete from Cloudinary and database)
+      const deleteResult = await documentService.deleteDocument(docId);
       
-      toast.success("Document deleted successfully!");
+      if (deleteResult.success) {
+        // Refresh the documents list
+        await fetchDocuments();
+        
+        toast.success("Document deleted successfully!");
+      } else {
+        toast.error(deleteResult.message || "Failed to delete document");
+      }
     } catch (error: any) {
-      console.error("Delete error:", error);
+      console.error("🔥 Delete error:", error);
       toast.error("Failed to delete document from storage");
     }
   };
 
   const handleDownloadDocument = async (docName: string, doc?: Document) => {
     try {
+      console.log("📥 Downloading document:", docName);
+      
       // If document has Cloudinary URL, download from there
       if (doc?.cloudinaryData?.url) {
         const response = await fetch(doc.cloudinaryData.url);
@@ -410,7 +488,7 @@ const AllDocumentsSection = () => {
         toast.success(`Downloading ${docName}...`);
       }
     } catch (error) {
-      console.error("Download error:", error);
+      console.error("🔥 Download error:", error);
       toast.error("Failed to download document");
     }
   };
@@ -429,29 +507,61 @@ const AllDocumentsSection = () => {
     if (searchQuery.trim()) {
       setIsLoading(true);
       try {
+        console.log("🔍 Searching for:", searchQuery);
         const result = await documentService.searchDocuments(searchQuery);
         
         if (result.success && result.data) {
-          const formattedDocuments: Document[] = result.data.map((doc: DocumentData) => ({
-            id: doc.id,
-            name: doc.name,
-            type: documentService.getFileType(doc.format || doc.name.split('.').pop() || ''),
-            size: doc.size,
-            uploadedBy: doc.uploadedBy || "Unknown",
-            date: doc.date || new Date().toISOString().split('T')[0],
-            category: doc.category,
-            description: doc.description,
-            cloudinaryData: {
-              url: doc.url,
-              publicId: doc.publicId,
-              format: doc.format
+          console.log(`🔍 Found ${result.data.length} documents`);
+          const formattedDocuments: Document[] = result.data.map((doc: DocumentData) => {
+            // Map backend category to frontend category
+            let frontendCategory: "uploaded" | "generated" | "template" | "image" | "document" | "spreadsheet" | "presentation" | "other" = "uploaded";
+            
+            if (doc.category === "template") {
+              frontendCategory = "template";
+            } else if (doc.category === "generated") {
+              frontendCategory = "generated";
+            } else if (doc.category === "image") {
+              frontendCategory = "image";
+            } else if (doc.category === "document") {
+              frontendCategory = "document";
+            } else if (doc.category === "spreadsheet") {
+              frontendCategory = "spreadsheet";
+            } else if (doc.category === "presentation") {
+              frontendCategory = "presentation";
+            } else if (doc.category === "other") {
+              frontendCategory = "other";
+            } else if (doc.category === "uploaded") {
+              frontendCategory = "uploaded";
             }
-          }));
+            
+            return {
+              id: doc._id || doc.id || "",
+              name: doc.originalname || doc.name || "Unnamed Document",
+              type: documentService.getFileType(doc.mimetype?.split('/')[1] || doc.originalname?.split('.').pop() || doc.name?.split('.').pop() || ''),
+              size: documentService.formatFileSize(doc.size || 0),
+              uploadedBy: "Admin",
+              date: doc.createdAt ? new Date(doc.createdAt).toISOString().split('T')[0] : 
+                    doc.date ? new Date(doc.date).toISOString().split('T')[0] : 
+                    new Date().toISOString().split('T')[0],
+              category: frontendCategory,
+              description: doc.description,
+              cloudinaryData: {
+                url: doc.url || "",
+                publicId: doc.public_id || "",
+                format: doc.mimetype?.split('/')[1] || 'unknown'
+              }
+            };
+          });
           
           setDocuments(formattedDocuments);
+        } else {
+          console.warn("🔍 Search failed:", result.message);
+          toast.error(result.message || "Search failed");
+          // Restore all documents on search error
+          fetchDocuments();
         }
       } catch (error) {
-        console.error("Search error:", error);
+        console.error("🔥 Search error:", error);
         toast.error("Search failed");
         // Restore all documents on search error
         fetchDocuments();
@@ -480,16 +590,21 @@ const AllDocumentsSection = () => {
     doc.type.toLowerCase().includes(searchQuery.toLowerCase()) ||
     doc.uploadedBy.toLowerCase().includes(searchQuery.toLowerCase()) ||
     doc.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    doc.description?.toLowerCase().includes(searchQuery.toLowerCase())
+    (doc.description && doc.description.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
   const getCategoryColor = (category: string) => {
-    const colors = {
+    const colors: Record<string, "default" | "secondary" | "outline" | "destructive"> = {
       uploaded: "default",
       template: "secondary",
-      generated: "outline"
+      generated: "outline",
+      image: "default",
+      document: "default",
+      spreadsheet: "default",
+      presentation: "default",
+      other: "outline"
     };
-    return colors[category as keyof typeof colors] || "outline";
+    return colors[category] || "outline";
   };
 
   return (
@@ -570,19 +685,43 @@ const AllDocumentsSection = () => {
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="file">
-                    Select File
-                    <span className="text-red-500 ml-1">*</span>
-                  </Label>
-                  <Input 
-                    id="file" 
-                    name="file" 
-                    type="file" 
-                    required 
-                    accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.txt"
-                    disabled={isUploading}
-                  />
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="category">
+                      Category
+                      <span className="text-red-500 ml-1">*</span>
+                    </Label>
+                    <Select name="category" defaultValue="uploaded" required disabled={isUploading}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select category" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="uploaded">Uploaded Document</SelectItem>
+                        <SelectItem value="template">Template</SelectItem>
+                        <SelectItem value="generated">Generated</SelectItem>
+                        <SelectItem value="image">Image</SelectItem>
+                        <SelectItem value="document">Document</SelectItem>
+                        <SelectItem value="spreadsheet">Spreadsheet</SelectItem>
+                        <SelectItem value="presentation">Presentation</SelectItem>
+                        <SelectItem value="other">Other</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="file">
+                      Select File
+                      <span className="text-red-500 ml-1">*</span>
+                    </Label>
+                    <Input 
+                      id="file" 
+                      name="file" 
+                      type="file" 
+                      required 
+                      accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.txt,.zip,.rar,.ppt,.pptx"
+                      disabled={isUploading}
+                    />
+                  </div>
                 </div>
                 
                 <div className="space-y-2">
@@ -675,7 +814,7 @@ const AllDocumentsSection = () => {
                       <Badge variant="outline">{doc.type}</Badge>
                     </TableCell>
                     <TableCell>
-                      <Badge variant={getCategoryColor(doc.category) as "default" | "destructive" | "outline" | "secondary"}>
+                      <Badge variant={getCategoryColor(doc.category)}>
                         {doc.category}
                       </Badge>
                     </TableCell>
@@ -731,16 +870,25 @@ const TemplatesSection = () => {
   // Fetch templates from backend
   const fetchTemplates = async () => {
     try {
-      const result = await documentService.getDocuments("template");
+      const result = await documentService.getDocuments();
       if (result.success && result.data) {
-        const backendTemplates: Template[] = result.data.map((doc: DocumentData, index: number) => ({
-          id: doc.id || String(index + 1),
-          name: doc.name,
-          type: documentService.getFileType(doc.format || doc.name.split('.').pop() || '') + ' Template',
-          description: doc.description || 'No description',
-          lastModified: doc.date || new Date().toISOString().split('T')[0]
-        }));
-        setTemplatesList(backendTemplates);
+        // Filter for template category and map to Template type
+        const backendTemplates: Template[] = result.data
+          .filter((doc: DocumentData) => doc.category === "template")
+          .map((doc: DocumentData, index: number) => ({
+            id: doc._id || String(index + 1),
+            name: doc.originalname || doc.name || "Unnamed Template",
+            type: documentService.getFileType(doc.mimetype?.split('/')[1] || doc.originalname?.split('.').pop() || '') + ' Template',
+            description: doc.description || 'No description',
+            lastModified: doc.createdAt ? new Date(doc.createdAt).toISOString().split('T')[0] : 
+                        doc.date ? new Date(doc.date).toISOString().split('T')[0] : 
+                        new Date().toISOString().split('T')[0]
+          }));
+        
+        // If no templates from backend, use default ones
+        if (backendTemplates.length > 0) {
+          setTemplatesList(backendTemplates);
+        }
       }
     } catch (error) {
       console.error("Error fetching templates:", error);
@@ -768,41 +916,24 @@ const TemplatesSection = () => {
       }
 
       const file = fileInput.files[0];
-      const fileSize = documentService.formatFileSize(file.size);
-      const fileExtension = documentService.getFileExtension(file.name);
       
-      // Upload template to backend
-      const uploadResult = await documentService.uploadDocument(file, "templates");
+      // Upload template to backend with category "template"
+      const uploadResult = await documentService.uploadDocument(file, "templates", description, "template");
       
       if (uploadResult.success) {
-        // Save template metadata
-        try {
-          await documentService.saveDocumentMetadata({
-            name: templateName || file.name,
-            url: uploadResult.data.url,
-            publicId: uploadResult.data.publicId,
-            format: uploadResult.data.format,
-            size: fileSize,
-            category: "template" as const,
-            description: description,
-            folder: "templates"
-          });
-
-          // Refresh templates list
-          await fetchTemplates();
-          
-          toast.success("Template uploaded successfully!");
-          setTemplateDialogOpen(false);
-          (e.target as HTMLFormElement).reset();
-        } catch (metadataError) {
-          console.error("Failed to save template metadata:", metadataError);
-          toast.error("Template uploaded but metadata not saved");
-        }
+        console.log("✅ Template uploaded successfully:", uploadResult.data);
+        
+        // Refresh templates list
+        await fetchTemplates();
+        
+        toast.success("Template uploaded successfully!");
+        setTemplateDialogOpen(false);
+        (e.target as HTMLFormElement).reset();
       } else {
         toast.error(uploadResult.message || "Template upload failed");
       }
     } catch (error: any) {
-      console.error("Template upload error:", error);
+      console.error("🔥 Template upload error:", error);
       toast.error("Failed to upload template");
     } finally {
       setIsUploadingTemplate(false);
@@ -814,9 +945,39 @@ const TemplatesSection = () => {
     // Logic to use template would go here
   };
 
-  const handleDownloadTemplate = (templateName: string) => {
-    toast.success(`Downloading template: ${templateName}`);
-    // Logic to download template would go here
+  const handleDownloadTemplate = async (templateName: string, templateId: string) => {
+    try {
+      // Check if it's a real MongoDB ID or dummy ID
+      const isRealMongoId = templateId && (templateId.length === 24 || /^[0-9a-fA-F]{24}$/.test(templateId));
+      
+      if (!isRealMongoId) {
+        // It's a dummy template
+        toast.success(`Downloading ${templateName}...`);
+        return;
+      }
+      
+      // Fetch template details from backend
+      const result = await documentService.getDocumentById(templateId);
+      if (result.success && result.data) {
+        const url = result.data.url;
+        const response = await fetch(url);
+        const blob = await response.blob();
+        const downloadUrl = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = downloadUrl;
+        a.download = templateName;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(downloadUrl);
+        document.body.removeChild(a);
+        toast.success(`Downloading ${templateName}...`);
+      } else {
+        toast.error("Template URL not found");
+      }
+    } catch (error) {
+      console.error("Download template error:", error);
+      toast.error("Failed to download template");
+    }
   };
 
   return (
@@ -854,16 +1015,15 @@ const TemplatesSection = () => {
                     Template Type
                     <span className="text-red-500 ml-1">*</span>
                   </Label>
-                  <Select required disabled={isUploadingTemplate}>
+                  <Select name="template-type" required disabled={isUploadingTemplate}>
                     <SelectTrigger>
                       <SelectValue placeholder="Select template type" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="joining">Joining Form</SelectItem>
-                      <SelectItem value="salary">Salary Slip</SelectItem>
-                      <SelectItem value="invoice">Invoice Template</SelectItem>
-                      <SelectItem value="attendance">Attendance Report</SelectItem>
-                      <SelectItem value="experience">Experience Report</SelectItem>
+                      <SelectItem value="pdf">PDF Template</SelectItem>
+                      <SelectItem value="word">Word Document Template</SelectItem>
+                      <SelectItem value="excel">Excel Template</SelectItem>
+                      <SelectItem value="image">Image Template</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -938,7 +1098,7 @@ const TemplatesSection = () => {
                     <Button 
                       variant="outline" 
                       size="sm"
-                      onClick={() => handleDownloadTemplate(template.name)}
+                      onClick={() => handleDownloadTemplate(template.name, template.id)}
                     >
                       <Download className="h-4 w-4" />
                     </Button>
@@ -972,22 +1132,21 @@ const GenerateDocumentsSection = () => {
       // Simulate document generation
       await new Promise(resolve => setTimeout(resolve, 2000));
       
-      // Here you would typically:
-      // 1. Call your document generation API
-      // 2. Save the generated document metadata
-      // 3. Refresh the documents list
-      
-      // For now, create a dummy generated document
-      const generatedDoc: Partial<DocumentData> = {
+      // Create a generated document with correct types
+      const generatedDoc: GeneratedDocument = {
         name: documentName,
-        size: documentService.formatFileSize(1024 * 1024), // 1MB
-        category: "generated" as const,
-        format: outputFormat,
+        type: documentService.getFileType(outputFormat), // Map format to type
+        size: documentService.formatFileSize(1024 * 1024), // Formatted string
+        category: "generated",
         description: `Generated ${documentType} document`
       };
       
-      // Simulate saving to backend
       console.log("Generated document:", generatedDoc);
+      
+      // In a real implementation, you would:
+      // 1. Call an API to actually generate the document
+      // 2. Save it to backend
+      // 3. Refresh the documents list
       
       toast.success(`${documentType} "${documentName}" generated successfully!`);
       setGenerateDialogOpen(false);

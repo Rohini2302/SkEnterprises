@@ -1,151 +1,188 @@
 import { Request, Response } from 'express';
-import Shift, { IShift } from '../models/Shift';
+import Shift from '../models/Shift';
 
 // Get all shifts
-export const getAllShifts = async (req: Request, res: Response): Promise<void> => {
+export const getShifts = async (req: Request, res: Response) => {
   try {
     const shifts = await Shift.find().sort({ createdAt: -1 });
-    res.status(200).json({ success: true, data: shifts });
-  } catch (error) {
+    
+    const transformedShifts = shifts.map(shift => ({
+      ...shift.toObject(),
+      id: shift._id.toString().slice(-6)
+    }));
+
+    res.status(200).json({ 
+      success: true, 
+      data: transformedShifts,
+      total: transformedShifts.length
+    });
+  } catch (error: any) {
+    console.error('Error fetching shifts:', error);
     res.status(500).json({ 
       success: false, 
-      message: 'Error fetching shifts', 
-      error: error instanceof Error ? error.message : 'Unknown error' 
+      message: error.message || 'Error fetching shifts'
     });
   }
 };
 
 // Get single shift by ID
-export const getShiftById = async (req: Request, res: Response): Promise<void> => {
+export const getShift = async (req: Request, res: Response) => {
   try {
     const shift = await Shift.findById(req.params.id);
     
     if (!shift) {
-      res.status(404).json({ success: false, message: 'Shift not found' });
-      return;
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Shift not found' 
+      });
     }
     
-    res.status(200).json({ success: true, data: shift });
-  } catch (error) {
+    res.status(200).json({ 
+      success: true, 
+      data: {
+        ...shift.toObject(),
+        id: shift._id.toString().slice(-6)
+      }
+    });
+  } catch (error: any) {
+    console.error('Error fetching shift:', error);
     res.status(500).json({ 
       success: false, 
-      message: 'Error fetching shift', 
-      error: error instanceof Error ? error.message : 'Unknown error' 
+      message: error.message || 'Error fetching shift'
     });
   }
 };
 
 // Create new shift
-export const createShift = async (req: Request, res: Response): Promise<void> => {
+export const createShift = async (req: Request, res: Response) => {
   try {
     const { name, startTime, endTime, employees = [] } = req.body;
 
-    // Basic validation
     if (!name || !startTime || !endTime) {
-      res.status(400).json({ 
+      return res.status(400).json({ 
         success: false, 
         message: 'Name, startTime, and endTime are required' 
       });
-      return;
     }
 
-    const newShift: IShift = new Shift({
-      name,
+    const newShift = new Shift({
+      name: name.trim(),
       startTime,
       endTime,
-      employees,
+      employees
     });
 
     const savedShift = await newShift.save();
-    
+
     res.status(201).json({ 
       success: true, 
-      message: 'Shift created successfully', 
-      data: savedShift 
+      message: 'Shift created successfully',
+      data: {
+        ...savedShift.toObject(),
+        id: savedShift._id.toString().slice(-6)
+      }
     });
-  } catch (error) {
+  } catch (error: any) {
+    console.error('Error creating shift:', error);
     res.status(500).json({ 
       success: false, 
-      message: 'Error creating shift', 
-      error: error instanceof Error ? error.message : 'Unknown error' 
+      message: error.message || 'Error creating shift'
     });
   }
 };
 
 // Update shift
-export const updateShift = async (req: Request, res: Response): Promise<void> => {
+export const updateShift = async (req: Request, res: Response) => {
   try {
     const { name, startTime, endTime, employees } = req.body;
     
     const updatedShift = await Shift.findByIdAndUpdate(
       req.params.id,
-      { name, startTime, endTime, employees },
+      { 
+        name: name?.trim(),
+        startTime, 
+        endTime, 
+        employees,
+        updatedAt: new Date()
+      },
       { new: true, runValidators: true }
     );
 
     if (!updatedShift) {
-      res.status(404).json({ success: false, message: 'Shift not found' });
-      return;
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Shift not found' 
+      });
     }
 
     res.status(200).json({ 
       success: true, 
       message: 'Shift updated successfully', 
-      data: updatedShift 
+      data: {
+        ...updatedShift.toObject(),
+        id: updatedShift._id.toString().slice(-6)
+      }
     });
-  } catch (error) {
+  } catch (error: any) {
+    console.error('Error updating shift:', error);
     res.status(500).json({ 
       success: false, 
-      message: 'Error updating shift', 
-      error: error instanceof Error ? error.message : 'Unknown error' 
+      message: error.message || 'Error updating shift'
     });
   }
 };
 
 // Delete shift
-export const deleteShift = async (req: Request, res: Response): Promise<void> => {
+export const deleteShift = async (req: Request, res: Response) => {
   try {
     const deletedShift = await Shift.findByIdAndDelete(req.params.id);
 
     if (!deletedShift) {
-      res.status(404).json({ success: false, message: 'Shift not found' });
-      return;
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Shift not found' 
+      });
     }
 
     res.status(200).json({ 
       success: true, 
       message: 'Shift deleted successfully' 
     });
-  } catch (error) {
+  } catch (error: any) {
+    console.error('Error deleting shift:', error);
     res.status(500).json({ 
       success: false, 
-      message: 'Error deleting shift', 
-      error: error instanceof Error ? error.message : 'Unknown error' 
+      message: error.message || 'Error deleting shift'
     });
   }
 };
 
 // Assign employee to shift
-export const assignEmployeeToShift = async (req: Request, res: Response): Promise<void> => {
+export const assignEmployeeToShift = async (req: Request, res: Response) => {
   try {
     const { employeeId } = req.body;
     
     if (!employeeId) {
-      res.status(400).json({ success: false, message: 'Employee ID is required' });
-      return;
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Employee ID is required' 
+      });
     }
 
     const shift = await Shift.findById(req.params.id);
     
     if (!shift) {
-      res.status(404).json({ success: false, message: 'Shift not found' });
-      return;
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Shift not found' 
+      });
     }
 
-    // Check if employee already assigned
     if (shift.employees.includes(employeeId)) {
-      res.status(400).json({ success: false, message: 'Employee already assigned to this shift' });
-      return;
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Employee already assigned to this shift' 
+      });
     }
 
     shift.employees.push(employeeId);
@@ -154,48 +191,83 @@ export const assignEmployeeToShift = async (req: Request, res: Response): Promis
     res.status(200).json({ 
       success: true, 
       message: 'Employee assigned successfully', 
-      data: updatedShift 
+      data: {
+        ...updatedShift.toObject(),
+        id: updatedShift._id.toString().slice(-6)
+      }
     });
-  } catch (error) {
+  } catch (error: any) {
+    console.error('Error assigning employee:', error);
     res.status(500).json({ 
       success: false, 
-      message: 'Error assigning employee', 
-      error: error instanceof Error ? error.message : 'Unknown error' 
+      message: error.message || 'Error assigning employee'
     });
   }
 };
 
 // Remove employee from shift
-export const removeEmployeeFromShift = async (req: Request, res: Response): Promise<void> => {
+export const removeEmployeeFromShift = async (req: Request, res: Response) => {
   try {
     const { employeeId } = req.body;
     
     if (!employeeId) {
-      res.status(400).json({ success: false, message: 'Employee ID is required' });
-      return;
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Employee ID is required' 
+      });
     }
 
     const shift = await Shift.findById(req.params.id);
     
     if (!shift) {
-      res.status(404).json({ success: false, message: 'Shift not found' });
-      return;
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Shift not found' 
+      });
     }
 
-    // Remove employee from array
-    shift.employees = shift.employees.filter(id => id !== employeeId);
+    shift.employees = shift.employees.filter((id: string) => id !== employeeId);
     const updatedShift = await shift.save();
 
     res.status(200).json({ 
       success: true, 
       message: 'Employee removed successfully', 
-      data: updatedShift 
+      data: {
+        ...updatedShift.toObject(),
+        id: updatedShift._id.toString().slice(-6)
+      }
     });
-  } catch (error) {
+  } catch (error: any) {
+    console.error('Error removing employee:', error);
     res.status(500).json({ 
       success: false, 
-      message: 'Error removing employee', 
-      error: error instanceof Error ? error.message : 'Unknown error' 
+      message: error.message || 'Error removing employee'
+    });
+  }
+};
+
+// Get shift statistics
+export const getShiftStats = async (req: Request, res: Response) => {
+  try {
+    const totalShifts = await Shift.countDocuments();
+    
+    const shifts = await Shift.find();
+    const totalEmployeesAssigned = shifts.reduce((sum, shift) => sum + shift.employees.length, 0);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        totalShifts,
+        totalEmployeesAssigned,
+        avgEmployeesPerShift: totalShifts > 0 ? 
+          Math.round(totalEmployeesAssigned / totalShifts) : 0
+      }
+    });
+  } catch (error: any) {
+    console.error('Error fetching shift statistics:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: error.message || 'Error fetching shift statistics'
     });
   }
 };

@@ -1,3 +1,4 @@
+// backend/src/models/Employee.ts
 import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IEmployee extends Document {
@@ -24,7 +25,7 @@ export interface IEmployee extends Document {
   permanentPincode?: string;
   localAddress?: string;
   localPincode?: string;
-   bankBranch?: string;
+  bankBranch?: string;
   
   // Bank Details
   bankName?: string;
@@ -65,10 +66,13 @@ export interface IEmployee extends Document {
   westcoatIssued: boolean;
   apronIssued: boolean;
   
-  // Documents
-  photo?: string; // Base64 or URL
+  // Documents - Cloudinary URLs
+  photo?: string;
+  photoPublicId?: string;
   employeeSignature?: string;
+  employeeSignaturePublicId?: string;
   authorizedSignature?: string;
+  authorizedSignaturePublicId?: string;
   
   // System Fields
   createdAt: Date;
@@ -80,9 +84,10 @@ const EmployeeSchema: Schema = new Schema(
     // Basic Information
     employeeId: {
       type: String,
-      required: false, // Changed from true to false, will be auto-generated
+      required: true,
       unique: true,
-      trim: true
+      trim: true,
+      index: true
     },
     name: {
       type: String,
@@ -114,7 +119,6 @@ const EmployeeSchema: Schema = new Schema(
       type: String,
       trim: true,
       uppercase: true,
-      // Make PAN validation optional since not everyone has PAN
       match: [/^[A-Z]{5}[0-9]{4}[A-Z]{1}$|^$/, 'Please enter a valid PAN or leave empty']
     },
     esicNumber: {
@@ -187,10 +191,13 @@ const EmployeeSchema: Schema = new Schema(
       type: String,
       trim: true,
       uppercase: true,
-      // Make IFSC validation optional
       match: [/^[A-Z]{4}0[A-Z0-9]{6}$|^$/, 'Please enter a valid IFSC code or leave empty']
     },
     branchName: {
+      type: String,
+      trim: true
+    },
+    bankBranch: {
       type: String,
       trim: true
     },
@@ -282,10 +289,6 @@ const EmployeeSchema: Schema = new Schema(
       enum: ['admin', 'manager', 'supervisor', 'employee', null],
       default: 'employee'
     },
-       bankBranch: {
-      type: String,
-      trim: true
-    },
     
     // Uniform Details
     pantSize: {
@@ -318,16 +321,35 @@ const EmployeeSchema: Schema = new Schema(
       default: false
     },
     
-    // Documents (store as base64 or file paths)
     photo: {
-      type: String // Base64 string or file path
+      type: String,
+      default: ''
     },
+    
+    photoPublicId: {
+      type: String,
+      default: ''
+    },
+    
     employeeSignature: {
-      type: String // Base64 string or file path
+      type: String,
+      default: ''
     },
+    
+    employeeSignaturePublicId: {
+      type: String,
+      default: ''
+    },
+    
     authorizedSignature: {
-      type: String // Base64 string or file path
-    }
+      type: String,
+      default: ''
+    },
+    
+    authorizedSignaturePublicId: {
+      type: String,
+      default: ''
+    },
   },
   {
     timestamps: true,
@@ -336,28 +358,8 @@ const EmployeeSchema: Schema = new Schema(
   }
 );
 
-// Generate employeeId before saving
-EmployeeSchema.pre('save', async function (next) {
-  const employee = this as IEmployee;
-  
-  // Only generate employeeId if it doesn't exist
-  if (!employee.employeeId) {
-    // Find the last employee to generate sequential ID
-    const lastEmployee = await mongoose.model('Employee').findOne().sort({ createdAt: -1 });
-    let lastNumber = 0;
-    
-    if (lastEmployee && lastEmployee.employeeId) {
-      const matches = lastEmployee.employeeId.match(/EMP(\d+)/);
-      if (matches && matches[1]) {
-        lastNumber = parseInt(matches[1]);
-      }
-    }
-    
-    employee.employeeId = `EMP${String(lastNumber + 1).padStart(4, '0')}`;
-  }
-  
-  next();
-});
+// Remove the auto-generating pre-save hook - it's causing issues
+// Instead, we'll handle this in the controller
 
 // Indexes for better query performance
 EmployeeSchema.index({ email: 1 }, { unique: true });

@@ -85,12 +85,17 @@ const getSidebarItems = (role: UserRole) => {
       return [
         ...baseItems,
         { name: "Profile", icon: UserCog, path: "profile" },
+        {name: "HRMS", icon: Users, path: "hrms"},
         { name: "Team", icon: Users, path: "team" },
         { name: "Tasks", icon: ClipboardList, path: "tasks" },
         { name: "CRM", icon: Building2, path: "crm" },
+        { name: "ERP", icon: ClipboardList, path: "erp" },
+        { name: "Billing & Finance", icon: DollarSign, path: "billing" },
+        { name: "Operations", icon: ClipboardList, path: "operations" },
         { name: "Attendance", icon: ClipboardList, path: "attendance" },
         { name: "Reports", icon: BarChart3, path: "reports" },
         { name: "Leave", icon: Calendar, path: "leave" },
+        { name: "Documents", icon: FileText, path: "documents" },
         { name: "Notifications", icon: Bell, path: "notifications" },
         { name: "Settings", icon: Settings, path: "settings" },
       ];

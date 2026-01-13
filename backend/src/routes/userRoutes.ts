@@ -1,26 +1,51 @@
-// routes/authRoutes.ts
+// routes/userRoutes.ts
 import express, { Request, Response } from 'express';
-import jwt from 'jsonwebtoken';
-import bcrypt from 'bcryptjs';
-import {User,  IUser } from '../models/User';
+import { User } from '../models/User';
+import { auth, authorize } from '../middleware/auth';
 
 const router = express.Router();
 
-// Signup route
-router.post('/signup', async (req: Request, res: Response) => {
+// Get all users (accessible by both admin and superadmin)
+router.get('/', auth, async (req: Request, res: Response) => {
   try {
-    const { name, email, password, role } = req.body;
+    const users = await User.find().select('-password');
+    
+    const groupedByRole = users.reduce((acc: any, user: any) => {
+      if (!acc[user.role]) {
+        acc[user.role] = [];
+      }
+      acc[user.role].push(user);
+      return acc;
+    }, {});
 
-    // Validate required fields
-    if (!name || !email || !password || !role) {
-      return res.status(400).json({
-        success: false,
-        message: 'Please provide all required fields'
-      });
-    }
+    res.json({
+      success: true,
+      allUsers: users.map(user => ({
+        ...user.toObject(),
+        id: user._id.toString().slice(-6),
+        status: user.isActive ? 'active' : 'inactive'
+      })),
+      groupedByRole,
+      total: users.length,
+      active: users.filter((u: any) => u.isActive).length,
+      inactive: users.filter((u: any) => !u.isActive).length
+    });
+  } catch (error: any) {
+    console.error('Error fetching users:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Server error fetching users' 
+    });
+  }
+});
 
+// Create user (accessible by both admin and superadmin)
+router.post('/', auth, async (req: Request, res: Response) => {
+  try {
+    const userData = req.body;
+    
     // Check if user already exists
-    const existingUser = await User.findOne({ email });
+    const existingUser = await User.findOne({ email: userData.email });
     if (existingUser) {
       return res.status(400).json({
         success: false,
@@ -28,153 +53,152 @@ router.post('/signup', async (req: Request, res: Response) => {
       });
     }
 
-    // For signup, only allow superadmin role
-    if (role !== 'superadmin') {
-      return res.status(403).json({
-        success: false,
-        message: 'Only Super Admin can sign up directly'
-      });
+    // Generate username if not provided
+    if (!userData.username && userData.email) {
+      userData.username = userData.email.split('@')[0];
     }
 
-    // Hash password
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const user = new User(userData);
+    await user.save();
 
-    // Create new user
-    const newUser = new User({
-      name,
-      email,
-      password: hashedPassword,
-      role: 'superadmin', // Force superadmin role for signup
-      username: email.split('@')[0], // Generate username from email
-      firstName: name.split(' ')[0],
-      lastName: name.split(' ').slice(1).join(' ') || '',
-      isActive: true,
-      site: 'Mumbai Office',
-      joinDate: new Date()
-    });
-
-    await newUser.save();
-
-    // Generate JWT token
-    const token = jwt.sign(
-      { userId: newUser._id, role: newUser.role },
-      process.env.JWT_SECRET || 'your-secret-key',
-      { expiresIn: '7d' }
-    );
-
-    // User response without password
-    const userResponse = {
-      _id: newUser._id.toString(),
-      id: newUser._id.toString().slice(-6),
-      name: newUser.name,
-      email: newUser.email,
-      role: newUser.role,
-      isActive: newUser.isActive,
-      joinDate: newUser.joinDate.toISOString().split('T')[0]
-    };
+    // Return user without password
+    const userResponse = user.toObject();
+    delete userResponse.password;
 
     res.status(201).json({
       success: true,
-      message: 'Super Admin account created successfully',
-      user: userResponse,
-      token
+      user: {
+        ...userResponse,
+        id: user._id.toString().slice(-6),
+        status: user.isActive ? 'active' : 'inactive'
+      },
+      message: 'User created successfully'
     });
   } catch (error: any) {
-    console.error('Signup error:', error);
-    res.status(500).json({
+    console.error('Error creating user:', error);
+    res.status(400).json({ 
       success: false,
-      message: error.message || 'Error creating user'
+      message: error.message || 'Error creating user' 
     });
   }
 });
 
-// Login route
-router.post('/login', async (req: Request, res: Response) => {
+// Update user
+router.put('/:id', auth, async (req: Request, res: Response) => {
   try {
-    const { email, password, role } = req.body;
+    const user = await User.findById(req.params.id);
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
 
-    // Validate required fields
-    if (!email || !password || !role) {
+    // Update user fields
+    Object.keys(req.body).forEach(key => {
+      if (key !== 'password') { // Don't update password directly
+        (user as any)[key] = req.body[key];
+      }
+    });
+
+    await user.save();
+
+    const userResponse = user.toObject();
+    delete userResponse.password;
+
+    res.json({
+      success: true,
+      user: {
+        ...userResponse,
+        id: user._id.toString().slice(-6),
+        status: user.isActive ? 'active' : 'inactive'
+      },
+      message: 'User updated successfully'
+    });
+  } catch (error: any) {
+    console.error('Error updating user:', error);
+    res.status(400).json({ 
+      success: false,
+      message: error.message || 'Error updating user' 
+    });
+  }
+});
+
+// Delete user
+router.delete('/:id', auth, authorize('admin', 'superadmin'), async (req: Request, res: Response) => {
+  try {
+    const user = await User.findById(req.params.id);
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Prevent deleting self
+    if (req.user && user._id.toString() === req.user.id) {
       return res.status(400).json({
         success: false,
-        message: 'Please provide all required fields'
+        message: 'Cannot delete your own account'
       });
     }
 
-    // Find user
-    const user = await User.findOne({ email });
-    if (!user) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid credentials'
-      });
-    }
+    await user.deleteOne();
 
-    // Verify password
-    const isValidPassword = await bcrypt.compare(password, user.password);
-    if (!isValidPassword) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid credentials'
-      });
-    }
-
-    // Check if user is active
-    if (!user.isActive) {
-      return res.status(403).json({
-        success: false,
-        message: 'Account is deactivated. Contact administrator.'
-      });
-    }
-
-    // Verify role
-    if (user.role !== role) {
-      return res.status(403).json({
-        success: false,
-        message: `You are registered as ${user.role}, not ${role}`
-      });
-    }
-
-    // Generate JWT token
-    const token = jwt.sign(
-      { userId: user._id, role: user.role },
-      process.env.JWT_SECRET || 'your-secret-key',
-      { expiresIn: '7d' }
-    );
-
-    // User response without password
-    const userResponse = {
-      _id: user._id.toString(),
-      id: user._id.toString().slice(-6),
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      isActive: user.isActive,
-      joinDate: user.joinDate.toISOString().split('T')[0]
-    };
-
-    res.status(200).json({
+    res.json({
       success: true,
-      message: 'Login successful',
-      user: userResponse,
-      token
+      message: 'User deleted successfully'
     });
   } catch (error: any) {
-    console.error('Login error:', error);
-    res.status(500).json({
+    console.error('Error deleting user:', error);
+    res.status(500).json({ 
       success: false,
-      message: error.message || 'Error logging in'
+      message: 'Error deleting user' 
     });
   }
 });
 
-// Verify token route (optional)
-router.post('/verify', async (req: Request, res: Response) => {
+// Toggle user status
+router.patch('/:id/toggle-status', auth, authorize('admin', 'superadmin'), async (req: Request, res: Response) => {
   try {
-    if (req.user?.role !== 'super_admin') {
-      return res.status(403).json({ message: 'Access denied' });
+    const user = await User.findById(req.params.id);
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
     }
 
+    user.isActive = !user.isActive;
+    await user.save();
+
+    const userResponse = user.toObject();
+    delete userResponse.password;
+
+    res.json({
+      success: true,
+      user: {
+        ...userResponse,
+        id: user._id.toString().slice(-6),
+        status: user.isActive ? 'active' : 'inactive'
+      },
+      message: `User ${user.isActive ? 'activated' : 'deactivated'} successfully`
+    });
+  } catch (error: any) {
+    console.error('Error toggling user status:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Error toggling user status' 
+    });
+  }
+});
+
+// Get user stats
+router.get('/stats', auth, async (req: Request, res: Response) => {
+  try {
     const stats = await User.aggregate([
       {
         $group: {
@@ -184,48 +208,15 @@ router.post('/verify', async (req: Request, res: Response) => {
       }
     ]);
 
-    res.json(stats);
-  } catch (error: any) {
-    res.status(500).json({ message: error.message });
-  }
-});
-
-
-
-// Toggle user status
-router.patch('/:id/toggle-status', authMiddleware, async (req: AuthRequest, res: Response) => {
-  try {
-    if (req.user?.role !== 'super_admin') {
-      return res.status(403).json({ message: 'Access denied' });
-    }
-
-    const user = await User.findById(req.params.id);
-
-    if (!user) {
-      return res.status(401).json({
-        success: false,
-        message: 'User not found'
-      });
-    }
-
-    const userResponse = {
-      _id: user._id.toString(),
-      id: user._id.toString().slice(-6),
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      isActive: user.isActive,
-      joinDate: user.joinDate.toISOString().split('T')[0]
-    };
-
-    res.status(200).json({
+    res.json({
       success: true,
-      user: userResponse
+      data: stats
     });
   } catch (error: any) {
-    res.status(401).json({
+    console.error('Error fetching user stats:', error);
+    res.status(500).json({ 
       success: false,
-      message: 'Invalid token'
+      message: 'Error fetching user stats' 
     });
   }
 });

@@ -1,3 +1,4 @@
+
 import express from 'express';
 import {
   getAllClients,
@@ -23,3 +24,4 @@ router.delete('/:id', deleteClient);
 router.patch('/:id/toggle-status', toggleClientStatus);
 
 export default router;
+

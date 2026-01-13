@@ -1,6 +1,6 @@
-// src/services/document.service.ts
-import axios from 'axios';
+import axios, { AxiosError } from 'axios';
 
+// Use absolute URL - make sure this matches your backend
 const API_BASE_URL = 'http://localhost:5001/api';
 
 export interface DocumentUploadResponse {
@@ -8,133 +8,169 @@ export interface DocumentUploadResponse {
   message: string;
   data: {
     url: string;
-    publicId: string;
+    public_id: string;
     format: string;
-    width: number;
-    height: number;
+    size: number;
+    originalname: string;
+    documentId: string;
+    mimetype: string;
+    category: string;
   };
 }
 
 export interface DocumentData {
-  id: string;
-  url: string;
-  publicId: string;
-  format: string;
   name: string;
-  size: string;
-  uploadedBy: string;
+  id: string;
   date: string;
-  category: "uploaded" | "generated" | "template";
+  _id: string;
+  url: string;
+  public_id: string;
+  originalname: string;
+  mimetype: string;
+  size: number;
+  folder: string;
+  category: 'image' | 'document' | 'spreadsheet' | 'presentation' | 'other' | 'uploaded' | 'generated' | 'template';
+  uploadedBy?: string;
   description?: string;
+  tags?: string[];
+  isArchived: boolean;
+  uploadedAt: string;
+  lastAccessed: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
-export interface GetDocumentsResponse {
+export interface ApiResponse<T> {
   success: boolean;
   message: string;
-  data: DocumentData[];
+  data?: T;
+  count?: number;
   total?: number;
+  pages?: number;
+  currentPage?: number;
 }
 
 class DocumentService {
+  private api = axios.create({
+    baseURL: API_BASE_URL,
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    timeout: 30000,
+    withCredentials: true,
+  });
+
+  // Test API connection
+  async testConnection(): Promise<boolean> {
+    try {
+      console.log('🧪 Testing backend connection...');
+      const response = await axios.get('http://localhost:5001/health', { 
+        timeout: 5000,
+        headers: {
+          'Accept': 'application/json'
+        }
+      });
+      console.log('✅ Backend connection successful:', response.data);
+      return true;
+    } catch (error) {
+      console.error('❌ Backend connection failed:', error);
+      return false;
+    }
+  }
+
   // Upload single document
-  async uploadDocument(file: File, folder?: string): Promise<DocumentUploadResponse> {
-    const formData = new FormData();
-    formData.append('file', file);
-    if (folder) {
+  async uploadDocument(file: File, folder: string = 'documents', description?: string, category?: string): Promise<ApiResponse<DocumentUploadResponse['data']>> {
+    try {
+      console.log('📤 Uploading file:', {
+        name: file.name,
+        size: file.size,
+        type: file.type,
+        folder: folder,
+        category: category,
+        description: description
+      });
+      
+      const formData = new FormData();
+      formData.append('file', file);
       formData.append('folder', folder);
-    }
-
-    const response = await axios.post(`${API_BASE_URL}/upload/single`, formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-    });
-    
-    return response.data;
-  }
-  
-  // Upload multiple documents
-  async uploadMultipleDocuments(files: File[], folder?: string): Promise<DocumentUploadResponse> {
-    const formData = new FormData();
-    files.forEach((file) => {
-      formData.append('files', file);
-    });
-    if (folder) {
-      formData.append('folder', folder);
-    }
-
-    const response = await axios.post(`${API_BASE_URL}/upload/multiple`, formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-    });
-    
-    return response.data;
-  }
-
-  // Delete document
-async deleteDocument(publicIdOrDbId: string, fromCloudinary: boolean = true): Promise<any> {
-  try {
-    if (fromCloudinary) {
-      // Delete from Cloudinary
-      const response = await axios.delete(`${API_BASE_URL}/upload/${publicIdOrDbId}`);
-      return response.data;
-    } else {
-      // Delete from database only
-      const response = await axios.delete(`${API_BASE_URL}/documents/${publicIdOrDbId}`);
-      return response.data;
-    }
-  } catch (error: any) {
-    console.error('Error deleting document:', error);
-    // Try to delete from database even if Cloudinary deletion fails
-    if (fromCloudinary) {
-      try {
-        await axios.delete(`${API_BASE_URL}/documents/${publicIdOrDbId}`);
-      } catch (dbError) {
-        // Log but continue
-        console.error('Also failed to delete from database:', dbError);
+      if (description) {
+        formData.append('description', description);
       }
+      if (category) {
+        formData.append('category', category);
+      }
+
+      console.log('🔄 Sending upload request to:', `${this.api.defaults.baseURL}/upload/single`);
+      
+      const response = await this.api.post('/upload/single', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+        timeout: 60000, // 60 seconds for upload
+      });
+
+      console.log('✅ Upload successful:', response.data);
+      return response.data;
+    } catch (error: unknown) {
+      console.error('❌ Upload failed:', error);
+      return this.handleApiError(error);
     }
-    throw error;
   }
-}
 
   // Get all documents
-  async getDocuments(category?: string): Promise<GetDocumentsResponse> {
+  async getDocuments(category?: string, page: number = 1, limit: number = 20): Promise<ApiResponse<DocumentData[]>> {
     try {
-      const params = category ? { category } : {};
-      const response = await axios.get(`${API_BASE_URL}/documents`, { params });
+      console.log('📥 Fetching documents with params:', { category, page, limit });
+      
+      const params: any = { page, limit };
+      if (category) {
+        params.category = category;
+      }
+      
+      console.log('🔄 Making request to:', `${this.api.defaults.baseURL}/documents`);
+      
+      const response = await this.api.get('/documents', { params });
+      
+      console.log('✅ Documents fetched:', {
+        count: response.data.count,
+        total: response.data.total,
+        dataLength: response.data.data?.length,
+        message: response.data.message
+      });
+      
       return response.data;
-    } catch (error: any) {
-      console.error('Error fetching documents:', error);
-      return {
-        success: false,
-        message: error.response?.data?.message || 'Failed to fetch documents',
-        data: []
-      };
+    } catch (error: unknown) {
+      console.error('❌ Failed to fetch documents:', error);
+      return this.handleApiError(error);
     }
   }
 
   // Get document by ID
-  async getDocumentById(id: string): Promise<GetDocumentsResponse> {
+  async getDocumentById(id: string): Promise<ApiResponse<DocumentData>> {
     try {
-      const response = await axios.get(`${API_BASE_URL}/documents/${id}`);
-      return {
-        success: true,
-        message: 'Document fetched successfully',
-        data: response.data.data ? [response.data.data] : []
-      };
-    } catch (error: any) {
-      console.error('Error fetching document:', error);
-      return {
-        success: false,
-        message: error.response?.data?.message || 'Failed to fetch document',
-        data: []
-      };
+      console.log('📄 Fetching document by ID:', id);
+      
+      // Check if it's a valid MongoDB ObjectId
+      const isValidObjectId = /^[0-9a-fA-F]{24}$/.test(id);
+      
+      if (!isValidObjectId) {
+        return {
+          success: false,
+          message: 'Invalid document ID format. Must be a valid MongoDB ObjectId (24 characters)',
+          data: undefined
+        };
+      }
+      
+      const response = await this.api.get(`/documents/${id}`);
+      console.log('✅ Document fetched:', response.data);
+      return response.data;
+    } catch (error: unknown) {
+      console.error('❌ Failed to fetch document:', error);
+      return this.handleApiError(error);
     }
   }
 
-  // Save document metadata to database (call this after upload)
+  // Save document metadata
   async saveDocumentMetadata(documentData: {
     name: string;
     url: string;
@@ -144,66 +180,162 @@ async deleteDocument(publicIdOrDbId: string, fromCloudinary: boolean = true): Pr
     category: "uploaded" | "generated" | "template";
     description?: string;
     folder?: string;
-  }): Promise<any> {
+  }): Promise<ApiResponse<DocumentData>> {
     try {
-      const response = await axios.post(`${API_BASE_URL}/documents`, documentData);
+      console.log('📝 Saving document metadata:', documentData);
+      
+      // Map frontend category to backend category
+      const categoryMap: Record<string, string> = {
+        'uploaded': 'document',
+        'generated': 'document', 
+        'template': 'template'
+      };
+      
+      const backendCategory = categoryMap[documentData.category] || 'document';
+      
+      console.log('🔄 Category mapping:', {
+        frontend: documentData.category,
+        backend: backendCategory
+      });
+      
+      const response = await this.api.post('/documents', {
+        originalname: documentData.name,
+        url: documentData.url,
+        public_id: documentData.publicId,
+        mimetype: this.getMimeTypeFromFormat(documentData.format),
+        size: this.parseFileSize(documentData.size),
+        folder: documentData.folder || 'documents',
+        category: backendCategory,
+        description: documentData.description,
+        tags: documentData.category === 'template' ? ['template'] : []
+      });
+      
+      console.log('✅ Metadata saved:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('Error saving document metadata:', error);
-      throw error;
+    } catch (error: unknown) {
+      console.error('❌ Failed to save metadata:', error);
+      return this.handleApiError(error);
     }
   }
 
-  // Update document metadata
-  async updateDocumentMetadata(id: string, updates: Partial<DocumentData>): Promise<any> {
+  // Delete document
+  async deleteDocument(id: string): Promise<ApiResponse<any>> {
     try {
-      const response = await axios.patch(`${API_BASE_URL}/documents/${id}`, updates);
+      console.log('🗑️ Deleting document with ID:', id);
+      
+      // Check if it's a valid MongoDB ObjectId
+      const isValidObjectId = /^[0-9a-fA-F]{24}$/.test(id);
+      
+      if (!isValidObjectId) {
+        return {
+          success: false,
+          message: 'Invalid document ID format. Must be a valid MongoDB ObjectId (24 characters)',
+          data: null
+        };
+      }
+      
+      const response = await this.api.delete(`/documents/${id}`);
+      console.log('✅ Document deleted:', response.data);
       return response.data;
-    } catch (error: any) {
-      console.error('Error updating document metadata:', error);
-      throw error;
+    } catch (error: unknown) {
+      console.error('❌ Failed to delete document:', error);
+      return this.handleApiError(error);
     }
   }
 
   // Search documents
-  async searchDocuments(query: string): Promise<GetDocumentsResponse> {
+  async searchDocuments(query: string): Promise<ApiResponse<DocumentData[]>> {
     try {
-      const response = await axios.get(`${API_BASE_URL}/documents/search`, {
+      console.log('🔍 Searching documents for:', query);
+      const response = await this.api.get('/documents/search/all', {
         params: { q: query }
       });
+      console.log('✅ Search results:', {
+        count: response.data.data?.length,
+        message: response.data.message
+      });
       return response.data;
-    } catch (error: any) {
-      console.error('Error searching documents:', error);
-      return {
-        success: false,
-        message: error.response?.data?.message || 'Failed to search documents',
-        data: []
-      };
+    } catch (error: unknown) {
+      console.error('❌ Search failed:', error);
+      return this.handleApiError(error);
     }
   }
-  
-  // Get file extension
+
+  // Helper methods
+  private handleApiError(error: unknown): ApiResponse<any> {
+    console.error('API Error Details:', error);
+    
+    if (axios.isAxiosError(error)) {
+      const axiosError = error as AxiosError;
+      
+      let errorMessage = 'Network error occurred';
+      
+      if (axiosError.response) {
+        console.error('Response error:', {
+          status: axiosError.response.status,
+          statusText: axiosError.response.statusText,
+          data: axiosError.response.data
+        });
+        
+        if (axiosError.response.status === 404) {
+          errorMessage = 'API endpoint not found. Check if backend server is running.';
+        } else if (axiosError.response.status === 500) {
+          errorMessage = 'Backend server error. Check server logs.';
+        } else if (axiosError.response.data && typeof axiosError.response.data === 'object') {
+          const data = axiosError.response.data as any;
+          errorMessage = data.message || JSON.stringify(data);
+        }
+      } else if (axiosError.request) {
+        errorMessage = 'No response received from server. Check if backend is running at ' + API_BASE_URL;
+      } else if (axiosError.message) {
+        errorMessage = axiosError.message;
+      }
+      
+      return {
+        success: false,
+        message: errorMessage,
+        data: null,
+      };
+    }
+    
+    if (error instanceof Error) {
+      return {
+        success: false,
+        message: error.message,
+        data: null,
+      };
+    }
+    
+    return {
+      success: false,
+      message: 'An unknown error occurred',
+      data: null,
+    };
+  }
+
   getFileExtension(filename: string): string {
     return filename.split('.').pop()?.toUpperCase() || 'UNKNOWN';
   }
 
-  // Get file type
   getFileType(extension: string): "PDF" | "XLSX" | "DOCX" | "JPG" | "PNG" | "OTHER" {
-    const imageTypes = ['JPG', 'JPEG', 'PNG', 'GIF', 'BMP', 'SVG', 'WEBP'];
-    const docTypes = ['DOC', 'DOCX', 'TXT', 'RTF'];
-    const excelTypes = ['XLS', 'XLSX', 'CSV'];
-    const pdfTypes = ['PDF'];
+    const ext = extension.toLowerCase();
     
-    const ext = extension.toUpperCase();
-    if (imageTypes.includes(ext)) return 'JPG';
-    if (docTypes.includes(ext)) return 'DOCX';
-    if (excelTypes.includes(ext)) return 'XLSX';
-    if (pdfTypes.includes(ext)) return 'PDF';
+    if (['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg'].includes(ext)) {
+      return 'JPG';
+    }
+    if (['doc', 'docx', 'txt', 'rtf'].includes(ext)) {
+      return 'DOCX';
+    }
+    if (['xls', 'xlsx', 'csv'].includes(ext)) {
+      return 'XLSX';
+    }
+    if (ext === 'pdf') {
+      return 'PDF';
+    }
     
     return 'OTHER';
   }
 
-  // Format file size
   formatFileSize(bytes: number): string {
     if (bytes === 0) return '0 Bytes';
     const k = 1024;
@@ -211,6 +343,41 @@ async deleteDocument(publicIdOrDbId: string, fromCloudinary: boolean = true): Pr
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   }
+
+  private parseFileSize(sizeString: string): number {
+    const units: { [key: string]: number } = {
+      'bytes': 1,
+      'kb': 1024,
+      'mb': 1024 * 1024,
+      'gb': 1024 * 1024 * 1024,
+    };
+    
+    const match = sizeString.toLowerCase().match(/^([\d.]+)\s*(\w+)$/);
+    if (!match) return 0;
+    
+    const [, value, unit] = match;
+    const baseUnit = unit.replace(/s$/, '');
+    return parseFloat(value) * (units[baseUnit] || 1);
+  }
+
+  private getMimeTypeFromFormat(format: string): string {
+    const mimeTypes: { [key: string]: string } = {
+      'PDF': 'application/pdf',
+      'DOCX': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'DOC': 'application/msword',
+      'XLSX': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'XLS': 'application/vnd.ms-excel',
+      'JPG': 'image/jpeg',
+      'JPEG': 'image/jpeg',
+      'PNG': 'image/png',
+      'GIF': 'image/gif',
+      'WEBP': 'image/webp',
+      'SVG': 'image/svg+xml',
+      'TXT': 'text/plain',
+    };
+    return mimeTypes[format.toUpperCase()] || 'application/octet-stream';
+  }
 }
 
-export default new DocumentService();
+const documentService = new DocumentService();
+export default documentService;
