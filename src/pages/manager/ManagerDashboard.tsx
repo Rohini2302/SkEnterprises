@@ -21,7 +21,10 @@ import {
   LogOut,
   Coffee,
   Timer,
-  Ban
+  Ban,
+  Wifi,
+  WifiOff,
+  User
 } from "lucide-react";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
@@ -55,6 +58,7 @@ interface AttendanceStatus {
   totalHours: number;
   breakTime: number;
   lastCheckInDate: string | null;
+  hasCheckedOutToday: boolean;
 }
 
 interface StatCardProps {
@@ -91,6 +95,17 @@ const CustomStatCard: React.FC<StatCardProps> = ({ title, value, icon: Icon, tre
 const ManagerDashboard = () => {
   const { onMenuClick } = useOutletContext<{ onMenuClick: () => void }>();
   
+  // API Base URL
+  const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001';
+  
+  // Manager ID and Name - Get from localStorage
+  const [managerId, setManagerId] = useState<string>('');
+  const [managerName, setManagerName] = useState<string>('');
+  
+  // State for API connection status
+  const [isBackendConnected, setIsBackendConnected] = useState(false);
+  const [isCheckingConnection, setIsCheckingConnection] = useState(false);
+  
   // Live data state
   const [stats, setStats] = useState({
     totalSupervisors: 0,
@@ -103,6 +118,7 @@ const ManagerDashboard = () => {
 
   const [recentActivities, setRecentActivities] = useState<Activity[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isAttendanceLoading, setIsAttendanceLoading] = useState(false);
 
   // Attendance state
   const [attendance, setAttendance] = useState<AttendanceStatus>({
@@ -114,144 +130,177 @@ const ManagerDashboard = () => {
     breakEndTime: null,
     totalHours: 0,
     breakTime: 0,
-    lastCheckInDate: null
+    lastCheckInDate: null,
+    hasCheckedOutToday: false
   });
 
-  const [hasCheckedInToday, setHasCheckedInToday] = useState(false);
-
-  // Fetch live data on component mount
+  // Initialize manager info from localStorage
   useEffect(() => {
-    fetchLiveData();
-    loadAttendanceStatus();
-    const interval = setInterval(fetchLiveData, 30000); // Refresh every 30 seconds
-    return () => clearInterval(interval);
+    const storedUser = localStorage.getItem("sk_user");
+    if (storedUser) {
+      try {
+        const user = JSON.parse(storedUser);
+        const id = user._id || user.id || `manager-${Date.now()}`;
+        const name = user.name || user.firstName || 'Manager';
+        setManagerId(id);
+        setManagerName(name);
+        console.log('Current Manager:', { id, name });
+      } catch (e) {
+        console.error('Error parsing user:', e);
+        setManagerId(`manager-${Date.now()}`);
+        setManagerName('Manager');
+      }
+    } else {
+      // Fallback for development
+      const randomId = `manager-${Date.now()}`;
+      setManagerId(randomId);
+      setManagerName('Demo Manager');
+      console.log('No user found, using demo manager ID:', randomId);
+    }
   }, []);
 
-  // Check if user has already checked in today
+  // Load data when managerId is available
   useEffect(() => {
-    checkIfAlreadyCheckedInToday();
-  }, [attendance.lastCheckInDate]);
+    if (managerId) {
+      checkBackendConnection();
+      fetchLiveData();
+      loadAttendanceStatus();
+      const interval = setInterval(fetchLiveData, 30000); // Refresh every 30 seconds
+      return () => clearInterval(interval);
+    }
+  }, [managerId]);
 
-  // Load attendance status from localStorage or API
-  const loadAttendanceStatus = async () => {
+  // Check attendance status when component mounts or attendance changes
+  useEffect(() => {
+    checkAttendanceStatusForToday();
+  }, [attendance.lastCheckInDate, attendance.hasCheckedOutToday, attendance.isCheckedIn]);
+
+  // ==================== BACKEND CONNECTION CHECK ====================
+
+  const checkBackendConnection = async () => {
     try {
-      const savedAttendance = localStorage.getItem('managerAttendance');
-      if (savedAttendance) {
-        const attendanceData = JSON.parse(savedAttendance);
-        // Ensure numeric values are numbers, not strings
-        const processedAttendance = {
-          ...attendanceData,
-          totalHours: typeof attendanceData.totalHours === 'string' ? parseFloat(attendanceData.totalHours) : (attendanceData.totalHours || 0),
-          breakTime: typeof attendanceData.breakTime === 'string' ? parseFloat(attendanceData.breakTime) : (attendanceData.breakTime || 0)
-        };
-        setAttendance(processedAttendance);
-        checkIfAlreadyCheckedInToday(processedAttendance.lastCheckInDate);
+      setIsCheckingConnection(true);
+      const response = await fetch(`${API_BASE_URL}/health`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.status === 'OK') {
+          setIsBackendConnected(true);
+          console.log('✅ Backend connected successfully');
+          toast.success("Connected to backend server");
+        } else {
+          setIsBackendConnected(false);
+          console.warn('⚠️ Backend health check failed');
+        }
+      } else {
+        setIsBackendConnected(false);
+        console.warn('⚠️ Backend health check failed with status:', response.status);
       }
     } catch (error) {
-      console.error('Error loading attendance status:', error);
+      console.error('❌ Backend connection error:', error);
+      setIsBackendConnected(false);
+      
+      // Show helpful message based on error type
+      if (error.name === 'TimeoutError' || error.name === 'AbortError') {
+        toast.error("Backend server is not responding. Please make sure the server is running on port 5001.");
+      } else if (error.message.includes('Failed to fetch')) {
+        toast.warning("Cannot connect to backend server. Using local storage mode.");
+      }
+    } finally {
+      setIsCheckingConnection(false);
     }
   };
 
-  // Check if user has already checked in today
-  const checkIfAlreadyCheckedInToday = (lastCheckInDate?: string | null) => {
+  // ==================== HELPER FUNCTIONS ====================
+
+  // Check attendance status for today
+  const checkAttendanceStatusForToday = () => {
+    if (!managerId) return;
+    
     const today = new Date().toDateString();
-    const checkInDate = lastCheckInDate ? new Date(lastCheckInDate).toDateString() : null;
-    setHasCheckedInToday(checkInDate === today && !attendance.isCheckedIn);
+    const lastCheckInDate = attendance.lastCheckInDate ? 
+      new Date(attendance.lastCheckInDate).toDateString() : null;
+    
+    console.log('Checking attendance status:', {
+      today,
+      lastCheckInDate,
+      hasCheckedOutToday: attendance.hasCheckedOutToday,
+      isCheckedIn: attendance.isCheckedIn
+    });
   };
 
-  // Save attendance status
-  const saveAttendanceStatus = (newAttendance: AttendanceStatus) => {
-    setAttendance(newAttendance);
-    localStorage.setItem('managerAttendance', JSON.stringify(newAttendance));
-    checkIfAlreadyCheckedInToday(newAttendance.lastCheckInDate);
-  };
-
-  // Reset attendance for new day
-  const resetAttendanceForNewDay = () => {
-    const newAttendance = {
-      isCheckedIn: false,
-      isOnBreak: false,
-      checkInTime: null,
-      checkOutTime: null,
-      breakStartTime: null,
-      breakEndTime: null,
-      totalHours: 0,
-      breakTime: 0,
-      lastCheckInDate: attendance.lastCheckInDate
-    };
-    saveAttendanceStatus(newAttendance);
-    setHasCheckedInToday(true);
-    toast.success("Attendance reset for new day!");
-  };
-
-  // Attendance handlers
-  const handleCheckIn = () => {
-    const now = new Date().toISOString();
+  // Check if manager can check in today
+  const canCheckInToday = (): boolean => {
     const today = new Date().toDateString();
+    const lastCheckInDate = attendance.lastCheckInDate ? 
+      new Date(attendance.lastCheckInDate).toDateString() : null;
     
-    const newAttendance = {
-      ...attendance,
-      isCheckedIn: true,
-      checkInTime: now,
-      checkOutTime: null,
-      lastCheckInDate: today
-    };
-    saveAttendanceStatus(newAttendance);
-    setHasCheckedInToday(true);
+    // If already checked in today and currently checked in
+    if (attendance.isCheckedIn && lastCheckInDate === today) {
+      return false;
+    }
     
-    // Add activity
-    addActivity('checkin', `Checked in at ${formatTimeForDisplay(now)}`);
-    toast.success("Successfully checked in!");
+    // If already checked out today
+    if (attendance.hasCheckedOutToday && lastCheckInDate === today) {
+      return false;
+    }
+    
+    return true;
   };
 
-  const handleCheckOut = () => {
-    const now = new Date().toISOString();
-    const totalHours = calculateTotalHours(attendance.checkInTime, now);
+  // Check if manager can check out today
+  const canCheckOutToday = (): boolean => {
+    const today = new Date().toDateString();
+    const lastCheckInDate = attendance.lastCheckInDate ? 
+      new Date(attendance.lastCheckInDate).toDateString() : null;
     
-    const newAttendance = {
-      ...attendance,
-      isCheckedIn: false,
-      isOnBreak: false,
-      checkOutTime: now,
-      totalHours: Number(totalHours.toFixed(2)) // Ensure it's a number
-    };
-    saveAttendanceStatus(newAttendance);
+    // Must be currently checked in today
+    if (!attendance.isCheckedIn) {
+      return false;
+    }
     
-    // Add activity
-    addActivity('checkout', `Checked out at ${formatTimeForDisplay(now)} - Total: ${totalHours.toFixed(2)}h`);
-    toast.success(`Checked out! Total hours: ${totalHours.toFixed(2)}`);
+    // Must not have already checked out today
+    if (attendance.hasCheckedOutToday && lastCheckInDate === today) {
+      return false;
+    }
+    
+    return true;
   };
 
-  const handleBreakIn = () => {
-    const now = new Date().toISOString();
-    const newAttendance = {
-      ...attendance,
-      isOnBreak: true,
-      breakStartTime: now
-    };
-    saveAttendanceStatus(newAttendance);
-    
-    // Add activity
-    addActivity('break', `Started break at ${formatTimeForDisplay(now)}`);
-    toast.info("Break started. Enjoy your break!");
+  // Format time for display
+  const formatTimeForDisplay = (timestamp: string): string => {
+    return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
-  const handleBreakOut = () => {
-    const now = new Date().toISOString();
-    const breakTime = calculateBreakTime(attendance.breakStartTime, now);
-    const totalBreakTime = (attendance.breakTime || 0) + breakTime;
-    
-    const newAttendance = {
-      ...attendance,
-      isOnBreak: false,
-      breakEndTime: now,
-      breakTime: Number(totalBreakTime.toFixed(2)) // Ensure it's a number
-    };
-    saveAttendanceStatus(newAttendance);
-    
-    // Add activity
-    addActivity('break', `Ended break at ${formatTimeForDisplay(now)} - Duration: ${breakTime.toFixed(2)}h`);
-    toast.success(`Break ended. Duration: ${breakTime.toFixed(2)} hours`);
+  const formatDateForDisplay = (timestamp: string): string => {
+    return new Date(timestamp).toLocaleDateString([], { 
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+  };
+
+  // Helper function for time ago display
+  const getTimeAgo = (timestamp: string): string => {
+    const now = new Date();
+    const past = new Date(timestamp);
+    const diffMs = now.getTime() - past.getTime();
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins} minutes ago`;
+    if (diffHours < 24) return `${diffHours} hours ago`;
+    if (diffDays === 1) return 'Yesterday';
+    if (diffDays < 7) return `${diffDays} days ago`;
+    return formatDateForDisplay(timestamp);
   };
 
   // Helper functions for time calculations
@@ -269,19 +318,6 @@ const ManagerDashboard = () => {
     return (endTime - startTime) / (1000 * 60 * 60);
   };
 
-  const formatTimeForDisplay = (timestamp: string): string => {
-    return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  };
-
-  const formatDateForDisplay = (timestamp: string): string => {
-    return new Date(timestamp).toLocaleDateString([], { 
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    });
-  };
-
   // Safe number formatting function
   const formatNumber = (value: number | null | undefined): string => {
     if (value === null || value === undefined || isNaN(value)) {
@@ -290,20 +326,747 @@ const ManagerDashboard = () => {
     return value.toFixed(2);
   };
 
+  // Add activity to state
   const addActivity = (type: Activity['type'], message: string) => {
     const newActivity: Activity = {
-      id: Date.now(),
+      id: Date.now() + Math.random(),
       type: type,
       title: message,
       user: 'You',
       time: 'Just now',
-      avatar: 'M'
+      avatar: managerName.charAt(0)
     };
     setRecentActivities(prev => [newActivity, ...prev.slice(0, 4)]);
   };
 
+  // Add activity to MongoDB API
+  const addActivityToAPI = async (type: string, title: string, details?: string) => {
+    try {
+      if (isBackendConnected && managerId) {
+        const response = await fetch(`${API_BASE_URL}/api/manager-attendance/activity`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ 
+            managerId, 
+            managerName,
+            type, 
+            title, 
+            details 
+          }),
+        });
+        
+        if (!response.ok) {
+          console.warn('Failed to save activity to API, continuing locally');
+        }
+      }
+      
+      const newActivity: Activity = {
+        id: Date.now() + Math.random(),
+        type: type as Activity['type'],
+        title: title,
+        user: 'You',
+        time: 'Just now',
+        avatar: managerName.charAt(0)
+      };
+      setRecentActivities(prev => [newActivity, ...prev.slice(0, 4)]);
+      
+    } catch (error) {
+      console.error('Error adding activity to API:', error);
+      const newActivity: Activity = {
+        id: Date.now() + Math.random(),
+        type: type as Activity['type'],
+        title: title,
+        user: 'You',
+        time: 'Just now',
+        avatar: managerName.charAt(0)
+      };
+      setRecentActivities(prev => [newActivity, ...prev.slice(0, 4)]);
+    }
+  };
+
+  // Save attendance to localStorage
+  const saveAttendanceToLocalStorage = (newAttendance: AttendanceStatus) => {
+    setAttendance(newAttendance);
+    if (managerId) {
+      localStorage.setItem(`managerAttendance_${managerId}`, JSON.stringify(newAttendance));
+    }
+  };
+
+  // ==================== ATTENDANCE API FUNCTIONS ====================
+
+  // Fetch manager attendance from MongoDB API
+  const fetchManagerAttendance = async (retryCount = 0): Promise<AttendanceStatus | null> => {
+    try {
+      setIsAttendanceLoading(true);
+      
+      if (!isBackendConnected || !managerId) {
+        console.log('Backend not connected, loading from local storage');
+        return loadFromLocalStorage();
+      }
+      
+      const response = await fetch(`${API_BASE_URL}/api/manager-attendance/today/${managerId}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+      
+      if (!response.ok) {
+        if (response.status === 404) {
+          console.log('No attendance record found');
+          return null;
+        }
+        throw new Error(`Failed to fetch attendance: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      if (data.success && data.data) {
+        const attendanceData = data.data;
+        const formattedAttendance: AttendanceStatus = {
+          isCheckedIn: attendanceData.isCheckedIn || false,
+          isOnBreak: attendanceData.isOnBreak || false,
+          checkInTime: attendanceData.checkInTime || null,
+          checkOutTime: attendanceData.checkOutTime || null,
+          breakStartTime: attendanceData.breakStartTime || null,
+          breakEndTime: attendanceData.breakEndTime || null,
+          totalHours: typeof attendanceData.totalHours === 'number' ? attendanceData.totalHours : 0,
+          breakTime: typeof attendanceData.breakTime === 'number' ? attendanceData.breakTime : 0,
+          lastCheckInDate: attendanceData.lastCheckInDate || null,
+          hasCheckedOutToday: attendanceData.hasCheckedOutToday || false
+        };
+        
+        saveAttendanceToLocalStorage(formattedAttendance);
+        
+        if (attendanceData.dailyActivities && attendanceData.dailyActivities.length > 0) {
+          const activities = attendanceData.dailyActivities
+            .slice(-5)
+            .reverse()
+            .map((activity: any, index: number) => ({
+              id: Date.now() + index,
+              type: activity.type,
+              title: activity.title,
+              user: 'You',
+              time: getTimeAgo(activity.timestamp),
+              avatar: managerName.charAt(0)
+            }));
+          
+          if (activities.length > 0) {
+            setRecentActivities(prev => {
+              const existingIds = new Set(prev.map(a => a.id));
+              const newActivities = activities.filter((a: Activity) => !existingIds.has(a.id));
+              return [...newActivities, ...prev].slice(0, 5);
+            });
+          }
+        }
+        
+        return formattedAttendance;
+      }
+      
+      return null;
+    } catch (error: any) {
+      console.error('Error fetching manager attendance:', error);
+      
+      if (retryCount < 2 && isBackendConnected) {
+        console.log(`Retrying fetch... (${retryCount + 1}/2)`);
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        return fetchManagerAttendance(retryCount + 1);
+      }
+      
+      return loadFromLocalStorage();
+    } finally {
+      setIsAttendanceLoading(false);
+    }
+  };
+
+  // Load from localStorage
+  const loadFromLocalStorage = (): AttendanceStatus | null => {
+    try {
+      const savedAttendance = localStorage.getItem(`managerAttendance_${managerId}`);
+      if (savedAttendance) {
+        const attendanceData = JSON.parse(savedAttendance);
+        const processedAttendance = {
+          ...attendanceData,
+          totalHours: typeof attendanceData.totalHours === 'string' ? 
+            parseFloat(attendanceData.totalHours) : (attendanceData.totalHours || 0),
+          breakTime: typeof attendanceData.breakTime === 'string' ? 
+            parseFloat(attendanceData.breakTime) : (attendanceData.breakTime || 0),
+          hasCheckedOutToday: attendanceData.hasCheckedOutToday || false
+        };
+        setAttendance(processedAttendance);
+        return processedAttendance;
+      }
+    } catch (parseError) {
+      console.error('Error parsing localStorage attendance:', parseError);
+    }
+    return null;
+  };
+
+  // Load attendance status
+  const loadAttendanceStatus = async () => {
+    try {
+      if (managerId) {
+        await fetchManagerAttendance();
+      }
+    } catch (error) {
+      console.error('Error loading attendance status:', error);
+    }
+  };
+
+  // Save check-in to API
+  const saveManagerCheckIn = async (retryCount = 0): Promise<any> => {
+    try {
+      setIsAttendanceLoading(true);
+      
+      // Check if already checked out today
+      const today = new Date().toDateString();
+      const lastCheckInDate = attendance.lastCheckInDate ? 
+        new Date(attendance.lastCheckInDate).toDateString() : null;
+      
+      if (attendance.hasCheckedOutToday && lastCheckInDate === today) {
+        toast.error("You have already checked out for today. Cannot check in again.");
+        return null;
+      }
+      
+      // Check if already checked in today
+      if (attendance.isCheckedIn && lastCheckInDate === today) {
+        toast.error("You are already checked in for today.");
+        return null;
+      }
+      
+      if (!isBackendConnected || !managerId) {
+        console.log('Backend not connected, using local storage');
+        return saveCheckInToLocalStorage();
+      }
+      
+      const response = await fetch(`${API_BASE_URL}/api/manager-attendance/checkin`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          managerId, 
+          managerName 
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to check in: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        toast.success(data.message || "Successfully checked in!");
+        
+        if (data.data) {
+          const attendanceData = data.data;
+          const formattedAttendance: AttendanceStatus = {
+            isCheckedIn: attendanceData.isCheckedIn || false,
+            isOnBreak: attendanceData.isOnBreak || false,
+            checkInTime: attendanceData.checkInTime || null,
+            checkOutTime: attendanceData.checkOutTime || null,
+            breakStartTime: attendanceData.breakStartTime || null,
+            breakEndTime: attendanceData.breakEndTime || null,
+            totalHours: typeof attendanceData.totalHours === 'number' ? attendanceData.totalHours : 0,
+            breakTime: typeof attendanceData.breakTime === 'number' ? attendanceData.breakTime : 0,
+            lastCheckInDate: attendanceData.lastCheckInDate || null,
+            hasCheckedOutToday: false
+          };
+          
+          saveAttendanceToLocalStorage(formattedAttendance);
+          
+          if (attendanceData.checkInTime) {
+            addActivityToAPI('checkin', `Checked in at ${formatTimeForDisplay(attendanceData.checkInTime)}`);
+          }
+        }
+        
+        return data.data;
+      } else {
+        throw new Error(data.message || "Failed to check in");
+      }
+    } catch (error: any) {
+      console.error('Error checking in:', error);
+      
+      if (retryCount < 2 && isBackendConnected) {
+        console.log(`Retrying check-in... (${retryCount + 1}/2)`);
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        return saveManagerCheckIn(retryCount + 1);
+      }
+      
+      return saveCheckInToLocalStorage();
+    } finally {
+      setIsAttendanceLoading(false);
+    }
+  };
+
+  // Save check-in to localStorage
+  const saveCheckInToLocalStorage = () => {
+    console.log('Saving check-in to local storage');
+    
+    // Check if already checked out today
+    const today = new Date().toDateString();
+    const lastCheckInDate = attendance.lastCheckInDate ? 
+      new Date(attendance.lastCheckInDate).toDateString() : null;
+    
+    if (attendance.hasCheckedOutToday && lastCheckInDate === today) {
+      toast.error("You have already checked out for today. Cannot check in again.");
+      return null;
+    }
+    
+    // Check if already checked in today
+    if (attendance.isCheckedIn && lastCheckInDate === today) {
+      toast.error("You are already checked in for today.");
+      return null;
+    }
+    
+    toast.warning("Using local storage. Data will sync when backend is available.");
+    
+    const now = new Date().toISOString();
+    const todayDate = new Date().toDateString();
+    
+    const newAttendance = {
+      ...attendance,
+      isCheckedIn: true,
+      checkInTime: now,
+      checkOutTime: null,
+      lastCheckInDate: todayDate,
+      hasCheckedOutToday: false
+    };
+    
+    saveAttendanceToLocalStorage(newAttendance);
+    addActivity('checkin', `Checked in at ${formatTimeForDisplay(now)}`);
+    
+    return newAttendance;
+  };
+
+  // Save check-out to API
+  const saveManagerCheckOut = async (retryCount = 0): Promise<any> => {
+    try {
+      setIsAttendanceLoading(true);
+      
+      // Check if already checked out today
+      const today = new Date().toDateString();
+      const lastCheckInDate = attendance.lastCheckInDate ? 
+        new Date(attendance.lastCheckInDate).toDateString() : null;
+      
+      if (attendance.hasCheckedOutToday && lastCheckInDate === today) {
+        toast.error("You have already checked out for today.");
+        return null;
+      }
+      
+      if (!isBackendConnected || !managerId) {
+        console.log('Backend not connected, using local storage');
+        return saveCheckOutToLocalStorage();
+      }
+      
+      const response = await fetch(`${API_BASE_URL}/api/manager-attendance/checkout`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ managerId })
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to check out: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        toast.success(data.message || "Successfully checked out!");
+        
+        if (data.data) {
+          const attendanceData = data.data;
+          const formattedAttendance: AttendanceStatus = {
+            isCheckedIn: attendanceData.isCheckedIn || false,
+            isOnBreak: attendanceData.isOnBreak || false,
+            checkInTime: attendanceData.checkInTime || null,
+            checkOutTime: attendanceData.checkOutTime || null,
+            breakStartTime: attendanceData.breakStartTime || null,
+            breakEndTime: attendanceData.breakEndTime || null,
+            totalHours: typeof attendanceData.totalHours === 'number' ? attendanceData.totalHours : 0,
+            breakTime: typeof attendanceData.breakTime === 'number' ? attendanceData.breakTime : 0,
+            lastCheckInDate: attendanceData.lastCheckInDate || null,
+            hasCheckedOutToday: true
+          };
+          
+          saveAttendanceToLocalStorage(formattedAttendance);
+          
+          if (attendanceData.checkOutTime) {
+            addActivityToAPI('checkout', `Checked out at ${formatTimeForDisplay(attendanceData.checkOutTime)} - Total: ${formattedAttendance.totalHours.toFixed(2)}h`);
+          }
+        }
+        
+        return data.data;
+      } else {
+        throw new Error(data.message || "Failed to check out");
+      }
+    } catch (error: any) {
+      console.error('Error checking out:', error);
+      
+      if (retryCount < 2 && isBackendConnected) {
+        console.log(`Retrying check-out... (${retryCount + 1}/2)`);
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        return saveManagerCheckOut(retryCount + 1);
+      }
+      
+      return saveCheckOutToLocalStorage();
+    } finally {
+      setIsAttendanceLoading(false);
+    }
+  };
+
+  // Save check-out to localStorage
+  const saveCheckOutToLocalStorage = () => {
+    console.log('Saving check-out to local storage');
+    
+    // Check if already checked out today
+    const today = new Date().toDateString();
+    const lastCheckInDate = attendance.lastCheckInDate ? 
+      new Date(attendance.lastCheckInDate).toDateString() : null;
+    
+    if (attendance.hasCheckedOutToday && lastCheckInDate === today) {
+      toast.error("You have already checked out for today.");
+      return null;
+    }
+    
+    toast.warning("Using local storage. Data will sync when backend is available.");
+    
+    const now = new Date().toISOString();
+    const totalHours = calculateTotalHours(attendance.checkInTime, now);
+    
+    const newAttendance = {
+      ...attendance,
+      isCheckedIn: false,
+      isOnBreak: false,
+      checkOutTime: now,
+      totalHours: Number(totalHours.toFixed(2)),
+      hasCheckedOutToday: true
+    };
+    
+    saveAttendanceToLocalStorage(newAttendance);
+    addActivity('checkout', `Checked out at ${formatTimeForDisplay(now)} - Total: ${totalHours.toFixed(2)}h`);
+    
+    return newAttendance;
+  };
+
+  // Save break in to API
+  const saveManagerBreakIn = async (retryCount = 0): Promise<any> => {
+    try {
+      setIsAttendanceLoading(true);
+      
+      if (!isBackendConnected || !managerId) {
+        console.log('Backend not connected, using local storage');
+        return saveBreakInToLocalStorage();
+      }
+      
+      const response = await fetch(`${API_BASE_URL}/api/manager-attendance/breakin`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ managerId })
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to start break: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        toast.success(data.message || "Break started successfully!");
+        
+        if (data.data) {
+          const attendanceData = data.data;
+          const formattedAttendance: AttendanceStatus = {
+            isCheckedIn: attendanceData.isCheckedIn || false,
+            isOnBreak: attendanceData.isOnBreak || false,
+            checkInTime: attendanceData.checkInTime || null,
+            checkOutTime: attendanceData.checkOutTime || null,
+            breakStartTime: attendanceData.breakStartTime || null,
+            breakEndTime: attendanceData.breakEndTime || null,
+            totalHours: typeof attendanceData.totalHours === 'number' ? attendanceData.totalHours : 0,
+            breakTime: typeof attendanceData.breakTime === 'number' ? attendanceData.breakTime : 0,
+            lastCheckInDate: attendanceData.lastCheckInDate || null,
+            hasCheckedOutToday: attendance.hasCheckedOutToday
+          };
+          
+          saveAttendanceToLocalStorage(formattedAttendance);
+          
+          if (attendanceData.breakStartTime) {
+            addActivityToAPI('break', `Started break at ${formatTimeForDisplay(attendanceData.breakStartTime)}`);
+          }
+        }
+        
+        return data.data;
+      } else {
+        throw new Error(data.message || "Failed to start break");
+      }
+    } catch (error: any) {
+      console.error('Error starting break:', error);
+      
+      if (retryCount < 2 && isBackendConnected) {
+        console.log(`Retrying break in... (${retryCount + 1}/2)`);
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        return saveManagerBreakIn(retryCount + 1);
+      }
+      
+      return saveBreakInToLocalStorage();
+    } finally {
+      setIsAttendanceLoading(false);
+    }
+  };
+
+  // Save break in to localStorage
+  const saveBreakInToLocalStorage = () => {
+    console.log('Saving break-in to local storage');
+    toast.warning("Using local storage. Data will sync when backend is available.");
+    
+    const now = new Date().toISOString();
+    const newAttendance = {
+      ...attendance,
+      isOnBreak: true,
+      breakStartTime: now
+    };
+    
+    saveAttendanceToLocalStorage(newAttendance);
+    addActivity('break', `Started break at ${formatTimeForDisplay(now)}`);
+    
+    return newAttendance;
+  };
+
+  // Save break out to API
+  const saveManagerBreakOut = async (retryCount = 0): Promise<any> => {
+    try {
+      setIsAttendanceLoading(true);
+      
+      if (!isBackendConnected || !managerId) {
+        console.log('Backend not connected, using local storage');
+        return saveBreakOutToLocalStorage();
+      }
+      
+      const response = await fetch(`${API_BASE_URL}/api/manager-attendance/breakout`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ managerId })
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to end break: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        toast.success(data.message || "Break ended successfully!");
+        
+        if (data.data) {
+          const attendanceData = data.data;
+          const formattedAttendance: AttendanceStatus = {
+            isCheckedIn: attendanceData.isCheckedIn || false,
+            isOnBreak: attendanceData.isOnBreak || false,
+            checkInTime: attendanceData.checkInTime || null,
+            checkOutTime: attendanceData.checkOutTime || null,
+            breakStartTime: attendanceData.breakStartTime || null,
+            breakEndTime: attendanceData.breakEndTime || null,
+            totalHours: typeof attendanceData.totalHours === 'number' ? attendanceData.totalHours : 0,
+            breakTime: typeof attendanceData.breakTime === 'number' ? attendanceData.breakTime : 0,
+            lastCheckInDate: attendanceData.lastCheckInDate || null,
+            hasCheckedOutToday: attendance.hasCheckedOutToday
+          };
+          
+          saveAttendanceToLocalStorage(formattedAttendance);
+          
+          if (attendanceData.breakEndTime && data.data.breakDuration) {
+            addActivityToAPI('break', `Ended break at ${formatTimeForDisplay(attendanceData.breakEndTime)} - Duration: ${data.data.breakDuration}h`);
+          }
+        }
+        
+        return data.data;
+      } else {
+        throw new Error(data.message || "Failed to end break");
+      }
+    } catch (error: any) {
+      console.error('Error ending break:', error);
+      
+      if (retryCount < 2 && isBackendConnected) {
+        console.log(`Retrying break out... (${retryCount + 1}/2)`);
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        return saveManagerBreakOut(retryCount + 1);
+      }
+      
+      return saveBreakOutToLocalStorage();
+    } finally {
+      setIsAttendanceLoading(false);
+    }
+  };
+
+  // Save break out to localStorage
+  const saveBreakOutToLocalStorage = () => {
+    console.log('Saving break-out to local storage');
+    toast.warning("Using local storage. Data will sync when backend is available.");
+    
+    const now = new Date().toISOString();
+    const breakTime = calculateBreakTime(attendance.breakStartTime, now);
+    const totalBreakTime = (attendance.breakTime || 0) + breakTime;
+    
+    const newAttendance = {
+      ...attendance,
+      isOnBreak: false,
+      breakEndTime: now,
+      breakTime: Number(totalBreakTime.toFixed(2))
+    };
+    
+    saveAttendanceToLocalStorage(newAttendance);
+    addActivity('break', `Ended break at ${formatTimeForDisplay(now)} - Duration: ${breakTime.toFixed(2)}h`);
+    
+    return newAttendance;
+  };
+
+  // Reset attendance for new day
+  const resetManagerAttendance = async (retryCount = 0): Promise<any> => {
+    try {
+      setIsAttendanceLoading(true);
+      
+      if (!isBackendConnected || !managerId) {
+        console.log('Backend not connected, resetting local storage');
+        return resetAttendanceForNewDayLocal();
+      }
+      
+      const response = await fetch(`${API_BASE_URL}/api/manager-attendance/reset/${managerId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ managerName })
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to reset attendance: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        toast.success(data.message || "Attendance reset for new day!");
+        
+        if (data.data) {
+          const attendanceData = data.data;
+          const formattedAttendance: AttendanceStatus = {
+            isCheckedIn: attendanceData.isCheckedIn || false,
+            isOnBreak: attendanceData.isOnBreak || false,
+            checkInTime: attendanceData.checkInTime || null,
+            checkOutTime: attendanceData.checkOutTime || null,
+            breakStartTime: attendanceData.breakStartTime || null,
+            breakEndTime: attendanceData.breakEndTime || null,
+            totalHours: typeof attendanceData.totalHours === 'number' ? attendanceData.totalHours : 0,
+            breakTime: typeof attendanceData.breakTime === 'number' ? attendanceData.breakTime : 0,
+            lastCheckInDate: attendanceData.lastCheckInDate || null,
+            hasCheckedOutToday: false
+          };
+          
+          saveAttendanceToLocalStorage(formattedAttendance);
+        }
+        
+        return data.data;
+      } else {
+        throw new Error(data.message || "Failed to reset attendance");
+      }
+    } catch (error: any) {
+      console.error('Error resetting attendance:', error);
+      
+      if (retryCount < 2 && isBackendConnected) {
+        console.log(`Retrying reset... (${retryCount + 1}/2)`);
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        return resetManagerAttendance(retryCount + 1);
+      }
+      
+      return resetAttendanceForNewDayLocal();
+    } finally {
+      setIsAttendanceLoading(false);
+    }
+  };
+
+  // Reset attendance locally
+  const resetAttendanceForNewDayLocal = () => {
+    console.log('Resetting attendance in local storage');
+    toast.warning("Using local storage. Data will sync when backend is available.");
+    
+    const newAttendance = {
+      isCheckedIn: false,
+      isOnBreak: false,
+      checkInTime: null,
+      checkOutTime: null,
+      breakStartTime: null,
+      breakEndTime: null,
+      totalHours: 0,
+      breakTime: 0,
+      lastCheckInDate: attendance.lastCheckInDate,
+      hasCheckedOutToday: false
+    };
+    
+    saveAttendanceToLocalStorage(newAttendance);
+    
+    return newAttendance;
+  };
+
+  // ==================== ATTENDANCE HANDLERS ====================
+
+  const handleCheckIn = () => {
+    if (!canCheckInToday()) {
+      const today = new Date().toDateString();
+      const lastCheckInDate = attendance.lastCheckInDate ? 
+        new Date(attendance.lastCheckInDate).toDateString() : null;
+      
+      if (attendance.hasCheckedOutToday && lastCheckInDate === today) {
+        toast.error("You have already checked out for today. Cannot check in again.");
+      } else if (attendance.isCheckedIn && lastCheckInDate === today) {
+        toast.error("You are already checked in for today.");
+      }
+      return;
+    }
+    
+    saveManagerCheckIn();
+  };
+
+  const handleCheckOut = () => {
+    if (!canCheckOutToday()) {
+      const today = new Date().toDateString();
+      const lastCheckInDate = attendance.lastCheckInDate ? 
+        new Date(attendance.lastCheckInDate).toDateString() : null;
+      
+      if (attendance.hasCheckedOutToday && lastCheckInDate === today) {
+        toast.error("You have already checked out for today.");
+      } else if (!attendance.isCheckedIn) {
+        toast.error("You must be checked in to check out.");
+      }
+      return;
+    }
+    
+    saveManagerCheckOut();
+  };
+
+  const handleBreakIn = () => {
+    saveManagerBreakIn();
+  };
+
+  const handleBreakOut = () => {
+    saveManagerBreakOut();
+  };
+
+  // ==================== OTHER FUNCTIONS ====================
+
   // Simulate fetching live data
   const fetchLiveData = async () => {
+    if (!managerId) return;
+    
     setIsLoading(true);
     
     setTimeout(() => {
@@ -319,7 +1082,7 @@ const ManagerDashboard = () => {
 
       const liveActivities: Activity[] = [
         {
-          id: 1,
+          id: Date.now() + 1,
           type: "task_completed",
           title: `Project Milestone ${Math.floor(Math.random() * 5) + 1} delivered`,
           user: ["Alice Chen", "Bob Wilson", "Carol Davis"][Math.floor(Math.random() * 3)],
@@ -327,15 +1090,15 @@ const ManagerDashboard = () => {
           avatar: "AC"
         },
         {
-          id: 2,
+          id: Date.now() + 2,
           type: "task_assigned",
           title: "New client requirements assigned",
-          user: "You",
+          user: 'You',
           time: "5 minutes ago",
-          avatar: "M"
+          avatar: managerName.charAt(0)
         },
         {
-          id: 3,
+          id: Date.now() + 3,
           type: "report_generated",
           title: `Q${Math.floor((currentTime.getMonth() / 3)) + 1} Performance Report ready`,
           user: "System",
@@ -343,7 +1106,7 @@ const ManagerDashboard = () => {
           avatar: "S"
         },
         {
-          id: 4,
+          id: Date.now() + 4,
           type: "team_update",
           title: "Team capacity updated",
           user: "System",
@@ -394,7 +1157,7 @@ const ManagerDashboard = () => {
     }
   ];
 
-  // Quick action handlers with full functionality
+  // Quick action handlers
   const handleAssignTask = () => {
     toast.success("Opening task assignment panel...", {
       action: {
@@ -445,7 +1208,7 @@ const ManagerDashboard = () => {
     });
   };
 
-  // Handle activity click with detailed functionality
+  // Handle activity click
   const handleActivityClick = (activity: Activity) => {
     const actions: Record<Activity['type'], () => void> = {
       task_completed: () => {
@@ -642,44 +1405,80 @@ const ManagerDashboard = () => {
       />
 
       <div className="p-6 space-y-6">
+        {/* Connection Status Banner */}
+        {!isBackendConnected && (
+          <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
+            <div className="flex items-center gap-3">
+              <WifiOff className="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
+              <div className="flex-1">
+                <p className="text-sm font-medium text-yellow-800 dark:text-yellow-300">
+                  Backend Server Not Connected
+                </p>
+                <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-1">
+                  Your attendance data is being saved locally. To sync with MongoDB database, please start your backend server:
+                </p>
+                <div className="mt-2 space-y-1 text-xs">
+                  <code className="bg-yellow-100 dark:bg-yellow-900/30 px-2 py-1 rounded">
+                    cd backend && npm run dev
+                  </code>
+                  <p className="text-yellow-600 dark:text-yellow-400">
+                    Server should be running at: {API_BASE_URL}
+                  </p>
+                </div>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={checkBackendConnection}
+                disabled={isCheckingConnection}
+                className="border-yellow-300 text-yellow-700 hover:bg-yellow-100"
+              >
+                {isCheckingConnection ? "Checking..." : "Retry Connection"}
+              </Button>
+            </div>
+          </div>
+        )}
+
         {/* Attendance Controls */}
         <Card className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Timer className="h-5 w-5 text-blue-600" />
-              Attendance Control
+              Attendance Control - {managerName}
+              {isAttendanceLoading && (
+                <Badge variant="outline" className="ml-2 animate-pulse">
+                  Syncing...
+                </Badge>
+              )}
+              {!isBackendConnected && (
+                <Badge variant="outline" className="ml-2 bg-yellow-100 text-yellow-800 border-yellow-300">
+                  <WifiOff className="h-3 w-3 mr-1" />
+                  Local Mode
+                </Badge>
+              )}
             </CardTitle>
             <CardDescription>
-              Manage your work hours and breaks - One check-in allowed per day
+              Manage your work hours and breaks - One check-in and one check-out allowed per day
+              {attendance.lastCheckInDate && (
+                <span className="block text-xs mt-1">
+                  Last check-in: {formatDateForDisplay(attendance.lastCheckInDate)}
+                </span>
+              )}
+              {attendance.hasCheckedOutToday && attendance.lastCheckInDate && 
+                new Date(attendance.lastCheckInDate).toDateString() === new Date().toDateString() && (
+                <span className="block text-xs mt-1 text-red-600 dark:text-red-400">
+                  ⚠️ You have already checked out for today. Cannot check in again.
+                </span>
+              )}
+              {attendance.isCheckedIn && attendance.lastCheckInDate && 
+                new Date(attendance.lastCheckInDate).toDateString() === new Date().toDateString() && (
+                <span className="block text-xs mt-1 text-green-600 dark:text-green-400">
+                  ✓ Currently checked in for today
+                </span>
+              )}
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {/* Daily Check-in Status */}
-            {hasCheckedInToday && !attendance.isCheckedIn && (
-              <div className="mb-4 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
-                <div className="flex items-center gap-2 text-yellow-800 dark:text-yellow-300">
-                  <Ban className="h-4 w-4" />
-                  <span className="text-sm font-medium">Already Checked In Today</span>
-                </div>
-                <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-1">
-                  You have already checked in today. Check-in is allowed only once per day.
-                </p>
-                {attendance.lastCheckInDate && (
-                  <p className="text-xs text-yellow-600 dark:text-yellow-400">
-                    Last check-in: {formatDateForDisplay(attendance.lastCheckInDate)}
-                  </p>
-                )}
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  className="mt-2 text-xs"
-                  onClick={resetAttendanceForNewDay}
-                >
-                  Reset for New Day
-                </Button>
-              </div>
-            )}
-
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Check In/Out */}
               <div className="space-y-3">
@@ -692,21 +1491,21 @@ const ManagerDashboard = () => {
                 <div className="flex gap-2">
                   <Button
                     onClick={handleCheckIn}
-                    disabled={attendance.isCheckedIn || hasCheckedInToday}
+                    disabled={!canCheckInToday() || isAttendanceLoading || !managerId}
                     className="flex-1 flex items-center gap-2"
-                    variant={(attendance.isCheckedIn || hasCheckedInToday) ? "outline" : "default"}
+                    variant={!canCheckInToday() || isAttendanceLoading || !managerId ? "outline" : "default"}
                   >
                     <LogIn className="h-4 w-4" />
-                    {hasCheckedInToday && !attendance.isCheckedIn ? 'Already Checked In' : 'Check In'}
+                    {isAttendanceLoading ? "Processing..." : "Check In"}
                   </Button>
                   <Button
                     onClick={handleCheckOut}
-                    disabled={!attendance.isCheckedIn}
+                    disabled={!canCheckOutToday() || isAttendanceLoading || !managerId}
                     className="flex-1 flex items-center gap-2"
-                    variant={!attendance.isCheckedIn ? "outline" : "default"}
+                    variant={!canCheckOutToday() || isAttendanceLoading || !managerId ? "outline" : "default"}
                   >
                     <LogOut className="h-4 w-4" />
-                    Check Out
+                    {isAttendanceLoading ? "Processing..." : "Check Out"}
                   </Button>
                 </div>
                 {attendance.checkInTime && (
@@ -728,21 +1527,21 @@ const ManagerDashboard = () => {
                 <div className="flex gap-2">
                   <Button
                     onClick={handleBreakIn}
-                    disabled={!attendance.isCheckedIn || attendance.isOnBreak}
+                    disabled={!attendance.isCheckedIn || attendance.isOnBreak || isAttendanceLoading || !managerId}
                     className="flex-1 flex items-center gap-2"
-                    variant={(!attendance.isCheckedIn || attendance.isOnBreak) ? "outline" : "default"}
+                    variant={(!attendance.isCheckedIn || attendance.isOnBreak || isAttendanceLoading || !managerId) ? "outline" : "default"}
                   >
                     <Coffee className="h-4 w-4" />
-                    Break In
+                    {isAttendanceLoading ? "Processing..." : "Break In"}
                   </Button>
                   <Button
                     onClick={handleBreakOut}
-                    disabled={!attendance.isOnBreak}
+                    disabled={!attendance.isOnBreak || isAttendanceLoading || !managerId}
                     className="flex-1 flex items-center gap-2"
-                    variant={!attendance.isOnBreak ? "outline" : "default"}
+                    variant={!attendance.isOnBreak || isAttendanceLoading || !managerId ? "outline" : "default"}
                   >
                     <Timer className="h-4 w-4" />
-                    Break Out
+                    {isAttendanceLoading ? "Processing..." : "Break Out"}
                   </Button>
                 </div>
                 {attendance.breakStartTime && attendance.isOnBreak && (
@@ -764,6 +1563,16 @@ const ManagerDashboard = () => {
                   <span className="text-gray-500">Break Time:</span>
                   <p className="font-medium">{formatNumber(attendance.breakTime)}h</p>
                 </div>
+              </div>
+              <div className="mt-2 text-xs text-gray-500">
+                <p>Data storage: {isBackendConnected ? 'MongoDB Database' : 'Local Storage'}</p>
+                <p>Manager: {managerName} (ID: {managerId})</p>
+                {attendance.hasCheckedOutToday && attendance.lastCheckInDate && 
+                  new Date(attendance.lastCheckInDate).toDateString() === new Date().toDateString() && (
+                  <p className="text-red-600 dark:text-red-400">
+                    ⚠️ Already checked out for today. Check-in disabled.
+                  </p>
+                )}
               </div>
             </div>
           </CardContent>
@@ -848,7 +1657,7 @@ const ManagerDashboard = () => {
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="flex items-center gap-2">
                 <Clock className="h-5 w-5" />
-                Live Activity Feed
+                Live Activity Feed - {managerName}
               </CardTitle>
               <Badge variant="secondary" className="animate-pulse">
                 Live

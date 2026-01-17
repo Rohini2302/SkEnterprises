@@ -1,10 +1,10 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { DashboardHeader } from "@/components/shared/DashboardHeader";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Calendar, CheckCircle, XCircle, Clock, Users, BarChart3, Download, CalendarDays, LogIn, LogOut, ChevronLeft, ChevronRight, FileSpreadsheet, Crown, RefreshCw, AlertCircle, Search, FileText, Loader2, MapPin } from "lucide-react";
+import { Calendar, CheckCircle, XCircle, Clock, Users, BarChart3, Download, CalendarDays, LogIn, LogOut, ChevronLeft, ChevronRight, FileSpreadsheet, Crown, RefreshCw, AlertCircle, Search, FileText, Loader2, MapPin, Shield } from "lucide-react";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 import { Badge } from "@/components/ui/badge";
@@ -15,13 +15,35 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 
 // API base URL
-const API_URL = `http://${window.location.hostname}:5001/api`;
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001';
 
-// Current supervisor info
-const currentSupervisor = {
-  id: 'supervisor-001',
-  name: 'Supervisor User',
-  supervisorId: 'supervisor-001',
+// Get current supervisor info from localStorage
+const getCurrentSupervisor = () => {
+  const storedUser = localStorage.getItem("sk_user");
+  if (storedUser) {
+    try {
+      const user = JSON.parse(storedUser);
+      return {
+        id: user._id || user.id || `supervisor-${Date.now()}`,
+        name: user.name || user.firstName || 'Supervisor',
+        supervisorId: user.supervisorId || user._id || `supervisor-${Date.now()}`
+      };
+    } catch (e) {
+      console.error('Error parsing user:', e);
+      return {
+        id: `supervisor-${Date.now()}`,
+        name: 'Supervisor',
+        supervisorId: `supervisor-${Date.now()}`
+      };
+    }
+  } else {
+    // Fallback for development
+    return {
+      id: 'supervisor-001',
+      name: 'Supervisor User',
+      supervisorId: 'supervisor-001',
+    };
+  }
 };
 
 interface Employee {
@@ -97,13 +119,17 @@ interface AttendanceStatus {
   breakEndTime: string | null;
   totalHours: number;
   breakTime: number;
+  lastCheckInDate?: string | null;
 }
 
 const Attendance = () => {
   const [activeTab, setActiveTab] = useState("my-attendance");
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   
-  // Supervisor attendance states
+  // Current supervisor info
+  const [currentSupervisor, setCurrentSupervisor] = useState(getCurrentSupervisor());
+  
+  // Supervisor attendance states - ONLY CURRENT SUPERVISOR'S DATA
   const [supervisorAttendance, setSupervisorAttendance] = useState<SupervisorAttendanceRecord[]>([]);
   const [currentStatus, setCurrentStatus] = useState<AttendanceStatus | null>(null);
   const [loadingSupervisor, setLoadingSupervisor] = useState(true);
@@ -204,33 +230,47 @@ const Attendance = () => {
     return dates;
   };
 
-  // SUPERVISOR ATTENDANCE FUNCTIONS
+  // SUPERVISOR ATTENDANCE FUNCTIONS - FOR CURRENT SUPERVISOR ONLY
   const loadSupervisorAttendance = async () => {
     try {
       setLoadingSupervisor(true);
       setApiError(null);
       
+      console.log('🔄 Loading supervisor attendance for:', currentSupervisor.id);
+      
+      // Load current status
       try {
-        const statusResponse = await fetch(`${API_URL}/attendance/status/${currentSupervisor.id}`);
+        const statusResponse = await fetch(`${API_BASE_URL}/api/attendance/status/${currentSupervisor.id}`);
         if (statusResponse.ok) {
           const statusData = await statusResponse.json();
           if (statusData.success) {
             setCurrentStatus(statusData.data);
+            console.log('✅ Current status loaded:', statusData.data);
           }
         }
       } catch (statusError) {
         console.log('Status API call failed:', statusError);
       }
 
+      // Load attendance history - ONLY FOR CURRENT SUPERVISOR
       try {
-        const historyResponse = await fetch(`${API_URL}/attendance/history?employeeId=${currentSupervisor.id}`);
+        console.log('📋 Fetching attendance history for supervisor:', currentSupervisor.id);
+        const historyResponse = await fetch(`${API_BASE_URL}/api/attendance/history?employeeId=${currentSupervisor.id}`);
+        
         if (historyResponse.ok) {
           const historyData = await historyResponse.json();
+          console.log('📊 Supervisor attendance history response:', historyData);
           
           if (historyData.success && Array.isArray(historyData.data)) {
-            const attendanceData = historyData.data;
+            // Filter to include ONLY current supervisor's records
+            const supervisorRecords = historyData.data.filter((record: any) => 
+              record.employeeId === currentSupervisor.id || 
+              record.supervisorId === currentSupervisor.id
+            );
             
-            const transformedRecords = attendanceData.map((record: any, index: number) => {
+            console.log(`✅ Found ${supervisorRecords.length} records for current supervisor`);
+            
+            const transformedRecords = supervisorRecords.map((record: any, index: number) => {
               const recordDate = record.date ? record.date : 
                                new Date(Date.now() - index * 86400000).toISOString().split('T')[0];
               
@@ -273,7 +313,7 @@ const Attendance = () => {
         console.log('History API call failed:', historyError);
       }
       
-      // Sample data
+      // Sample data - ONLY FOR CURRENT SUPERVISOR
       const sampleData: SupervisorAttendanceRecord[] = [
         {
           id: "today",
@@ -309,6 +349,38 @@ const Attendance = () => {
           shift: "Supervisor Shift",
           hours: 8.5
         },
+        {
+          id: "2",
+          employeeId: currentSupervisor.id,
+          employeeName: currentSupervisor.name,
+          supervisorId: currentSupervisor.supervisorId,
+          date: new Date(Date.now() - 2 * 86400000).toISOString().split('T')[0],
+          checkInTime: "09:00 AM",
+          checkOutTime: "04:30 PM",
+          breakStartTime: null,
+          breakEndTime: null,
+          totalHours: 7.5,
+          breakTime: 0.5,
+          status: "Present",
+          shift: "Supervisor Shift",
+          hours: 7.5
+        },
+        {
+          id: "3",
+          employeeId: currentSupervisor.id,
+          employeeName: currentSupervisor.name,
+          supervisorId: currentSupervisor.supervisorId,
+          date: new Date(Date.now() - 3 * 86400000).toISOString().split('T')[0],
+          checkInTime: "-",
+          checkOutTime: "-",
+          breakStartTime: null,
+          breakEndTime: null,
+          totalHours: 0,
+          breakTime: 0,
+          status: "Absent",
+          shift: "Supervisor Shift",
+          hours: 0
+        }
       ];
       
       setSupervisorAttendance(sampleData);
@@ -321,24 +393,42 @@ const Attendance = () => {
     }
   };
 
+  // Handle check-in for current supervisor
   const handleCheckIn = async () => {
     try {
-      const response = await fetch(`${API_URL}/attendance/checkin`, {
+      console.log('🔄 Attempting check-in for supervisor:', currentSupervisor.id);
+      
+      const payload = {
+        employeeId: currentSupervisor.id,
+        employeeName: currentSupervisor.name,
+        supervisorId: currentSupervisor.supervisorId,
+      };
+      
+      const response = await fetch(`${API_BASE_URL}/api/attendance/checkin`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          employeeId: currentSupervisor.id,
-          employeeName: currentSupervisor.name,
-          supervisorId: currentSupervisor.supervisorId,
-        }),
+        body: JSON.stringify(payload),
       });
 
       const data = await response.json();
       
       if (data.success) {
         toast.success("Checked in successfully!");
+        
+        // Update local state
+        const now = new Date().toISOString();
+        const newStatus = {
+          ...currentStatus,
+          isCheckedIn: true,
+          checkInTime: now,
+          checkOutTime: null,
+          lastCheckInDate: new Date().toDateString()
+        };
+        setCurrentStatus(newStatus);
+        
+        // Reload supervisor attendance
         loadSupervisorAttendance();
       } else {
         toast.error(data.message || "Error checking in");
@@ -346,25 +436,55 @@ const Attendance = () => {
     } catch (error) {
       console.error('Check-in error:', error);
       toast.error("Error checking in");
+      
+      // Fallback: Update local state
+      const now = new Date().toISOString();
+      const newStatus = {
+        ...currentStatus,
+        isCheckedIn: true,
+        checkInTime: now,
+        checkOutTime: null,
+        lastCheckInDate: new Date().toDateString()
+      };
+      setCurrentStatus(newStatus);
     }
   };
 
+  // Handle check-out for current supervisor
   const handleCheckOut = async () => {
     try {
-      const response = await fetch(`${API_URL}/attendance/checkout`, {
+      console.log('🔄 Attempting check-out for supervisor:', currentSupervisor.id);
+      
+      const payload = {
+        employeeId: currentSupervisor.id,
+      };
+      
+      const response = await fetch(`${API_BASE_URL}/api/attendance/checkout`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          employeeId: currentSupervisor.id,
-        }),
+        body: JSON.stringify(payload),
       });
 
       const data = await response.json();
       
       if (data.success) {
         toast.success("Checked out successfully!");
+        
+        // Update local state
+        const now = new Date().toISOString();
+        const totalHours = calculateTotalHours(currentStatus?.checkInTime, now);
+        const newStatus = {
+          ...currentStatus,
+          isCheckedIn: false,
+          isOnBreak: false,
+          checkOutTime: now,
+          totalHours: totalHours
+        };
+        setCurrentStatus(newStatus);
+        
+        // Reload supervisor attendance
         loadSupervisorAttendance();
       } else {
         toast.error(data.message || "Error checking out");
@@ -372,25 +492,53 @@ const Attendance = () => {
     } catch (error) {
       console.error('Check-out error:', error);
       toast.error("Error checking out");
+      
+      // Fallback: Update local state
+      const now = new Date().toISOString();
+      const totalHours = calculateTotalHours(currentStatus?.checkInTime, now);
+      const newStatus = {
+        ...currentStatus,
+        isCheckedIn: false,
+        isOnBreak: false,
+        checkOutTime: now,
+        totalHours: totalHours
+      };
+      setCurrentStatus(newStatus);
     }
   };
 
+  // Handle break in for current supervisor
   const handleBreakIn = async () => {
     try {
-      const response = await fetch(`${API_URL}/attendance/breakin`, {
+      console.log('🔄 Starting break for supervisor:', currentSupervisor.id);
+      
+      const payload = {
+        employeeId: currentSupervisor.id,
+      };
+      
+      const response = await fetch(`${API_BASE_URL}/api/attendance/breakin`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          employeeId: currentSupervisor.id,
-        }),
+        body: JSON.stringify(payload),
       });
 
       const data = await response.json();
       
       if (data.success) {
         toast.success("Break started successfully!");
+        
+        // Update local state
+        const now = new Date().toISOString();
+        const newStatus = {
+          ...currentStatus,
+          isOnBreak: true,
+          breakStartTime: now
+        };
+        setCurrentStatus(newStatus);
+        
+        // Reload supervisor attendance
         loadSupervisorAttendance();
       } else {
         toast.error(data.message || "Error starting break");
@@ -398,25 +546,53 @@ const Attendance = () => {
     } catch (error) {
       console.error('Break-in error:', error);
       toast.error("Error starting break");
+      
+      // Fallback: Update local state
+      const now = new Date().toISOString();
+      const newStatus = {
+        ...currentStatus,
+        isOnBreak: true,
+        breakStartTime: now
+      };
+      setCurrentStatus(newStatus);
     }
   };
 
+  // Handle break out for current supervisor
   const handleBreakOut = async () => {
     try {
-      const response = await fetch(`${API_URL}/attendance/breakout`, {
+      console.log('🔄 Ending break for supervisor:', currentSupervisor.id);
+      
+      const payload = {
+        employeeId: currentSupervisor.id,
+      };
+      
+      const response = await fetch(`${API_BASE_URL}/api/attendance/breakout`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          employeeId: currentSupervisor.id,
-        }),
+        body: JSON.stringify(payload),
       });
 
       const data = await response.json();
       
       if (data.success) {
         toast.success("Break ended successfully!");
+        
+        // Update local state
+        const now = new Date().toISOString();
+        const breakTime = calculateBreakTime(currentStatus?.breakStartTime, now);
+        const totalBreakTime = (Number(currentStatus?.breakTime) || 0) + breakTime;
+        const newStatus = {
+          ...currentStatus,
+          isOnBreak: false,
+          breakEndTime: now,
+          breakTime: totalBreakTime
+        };
+        setCurrentStatus(newStatus);
+        
+        // Reload supervisor attendance
         loadSupervisorAttendance();
       } else {
         toast.error(data.message || "Error ending break");
@@ -424,16 +600,28 @@ const Attendance = () => {
     } catch (error) {
       console.error('Break-out error:', error);
       toast.error("Error ending break");
+      
+      // Fallback: Update local state
+      const now = new Date().toISOString();
+      const breakTime = calculateBreakTime(currentStatus?.breakStartTime, now);
+      const totalBreakTime = (Number(currentStatus?.breakTime) || 0) + breakTime;
+      const newStatus = {
+        ...currentStatus,
+        isOnBreak: false,
+        breakEndTime: now,
+        breakTime: totalBreakTime
+      };
+      setCurrentStatus(newStatus);
     }
   };
 
-  // NEW EMPLOYEE ATTENDANCE FUNCTIONS - UPDATED WITH BETTER ERROR HANDLING
+  // NEW EMPLOYEE ATTENDANCE FUNCTIONS
   const loadEmployees = async () => {
     try {
       setLoadingEmployees(true);
-      console.log('Fetching employees from:', `${API_URL}/employees`);
+      console.log('Fetching employees from:', `${API_BASE_URL}/api/employees`);
       
-      const response = await fetch(`${API_URL}/employees`);
+      const response = await fetch(`${API_BASE_URL}/api/employees`);
       const data = await response.json();
       
       console.log('Employees API response:', data);
@@ -561,48 +749,47 @@ const Attendance = () => {
     toast.info("Using sample employee data. Check your API connection.");
   };
 
-const loadAttendanceRecords = async (date: string) => {
-  try {
-    setLoadingAttendance(true);
-    console.log('Fetching attendance for date:', date);
-    
-    const response = await fetch(`${API_URL}/attendance?date=${date}`);
-    const data = await response.json();
-    
-    console.log('Attendance API response:', data);
-    
-    if (data.success) {
-      // Process records to ensure no negative hours
-      const processedRecords = (data.data || []).map((record: any) => {
-        if (record.checkInTime && record.checkOutTime) {
-          // Recalculate hours if they're negative
-          const calculatedHours = calculateTotalHours(record.checkInTime, record.checkOutTime);
-          if (calculatedHours > 0 && record.totalHours < 0) {
-            record.totalHours = calculatedHours;
-          }
-        }
-        return record;
-      });
+  const loadAttendanceRecords = async (date: string) => {
+    try {
+      setLoadingAttendance(true);
+      console.log('📋 Fetching attendance for date:', date);
       
-      setAttendanceRecords(processedRecords);
-    } else {
-      console.error('Failed to load attendance:', data.message);
+      const response = await fetch(`${API_BASE_URL}/api/attendance?date=${date}`);
+      const data = await response.json();
+      
+      console.log('Attendance API response:', data);
+      
+      if (data.success) {
+        // Process records to ensure no negative hours
+        const processedRecords = (data.data || []).map((record: any) => {
+          if (record.checkInTime && record.checkOutTime) {
+            // Recalculate hours if they're negative
+            const calculatedHours = calculateTotalHours(record.checkInTime, record.checkOutTime);
+            if (calculatedHours > 0 && record.totalHours < 0) {
+              record.totalHours = calculatedHours;
+            }
+          }
+          return record;
+        });
+        
+        setAttendanceRecords(processedRecords);
+      } else {
+        console.error('Failed to load attendance:', data.message);
+        setAttendanceRecords([]);
+        
+        // Load sample attendance data
+        loadSampleAttendance(date);
+      }
+    } catch (error: any) {
+      console.error('Error loading attendance:', error);
       setAttendanceRecords([]);
       
-      // Load sample attendance data
+      // Load sample attendance data on error
       loadSampleAttendance(date);
+    } finally {
+      setLoadingAttendance(false);
     }
-  } catch (error: any) {
-    console.error('Error loading attendance:', error);
-    setAttendanceRecords([]);
-    
-    // Load sample attendance data on error
-    loadSampleAttendance(date);
-  } finally {
-    setLoadingAttendance(false);
-  }
-};
-
+  };
 
   // Load sample attendance data
   const loadSampleAttendance = (date: string) => {
@@ -692,23 +879,72 @@ const loadAttendanceRecords = async (date: string) => {
     setAttendanceRecords(sampleAttendance);
   };
 
-const formatHours = (hours: number): string => {
-  if (hours < 0) {
-    return "0.00 hrs";
-  }
-  return `${hours.toFixed(2)} hrs`;
-};
+  const formatHours = (hours: number): string => {
+    if (hours < 0) {
+      return "0.00 hrs";
+    }
+    return `${hours.toFixed(2)} hrs`;
+  };
 
-  // NEW: Fetch weekly attendance data from API - IMPROVED VERSION
+  // Helper functions for time calculations
+  const calculateTotalHours = (start: string | null, end: string | null): number => {
+    if (!start || !end) return 0;
+    
+    try {
+      // Parse times safely
+      const parseTime = (timeStr: string): Date => {
+        if (timeStr.includes('T')) {
+          return new Date(timeStr);
+        }
+        
+        // Handle time strings like "18:43"
+        const today = new Date().toISOString().split('T')[0];
+        return new Date(`${today}T${timeStr}`);
+      };
+
+      const checkIn = parseTime(start);
+      const checkOut = parseTime(end);
+      
+      // Check if dates are valid
+      if (isNaN(checkIn.getTime()) || isNaN(checkOut.getTime())) {
+        return 0;
+      }
+      
+      // If check-out is earlier than check-in, it might be next day (for night shifts)
+      let diffMs = checkOut.getTime() - checkIn.getTime();
+      
+      // If negative, assume next day (for overnight shifts)
+      if (diffMs < 0) {
+        diffMs += 24 * 60 * 60 * 1000; // Add 24 hours
+      }
+      
+      const diffHours = diffMs / (1000 * 60 * 60);
+      
+      // Ensure hours are positive and reasonable
+      return Math.max(0, Math.min(diffHours, 24)); // Max 24 hours per day
+    } catch (error) {
+      console.error('Error calculating hours:', error);
+      return 0;
+    }
+  };
+
+  const calculateBreakTime = (start: string | null, end: string | null): number => {
+    if (!start || !end) return 0;
+    const startTime = new Date(start).getTime();
+    const endTime = new Date(end).getTime();
+    return (endTime - startTime) / (1000 * 60 * 60);
+  };
+
+  // Load weekly summaries
   const loadWeeklySummaries = async (weekStart: string, weekEnd: string) => {
     try {
       setLoadingWeekly(true);
-      console.log('Fetching weekly summary for:', { weekStart, weekEnd });
+      console.log('📋 Fetching weekly summary for:', { weekStart, weekEnd });
       
       // First, try to get weekly summary from the API endpoint
       try {
         const weeklyResponse = await fetch(
-          `${API_URL}/attendance/weekly-summary?startDate=${weekStart}&endDate=${weekEnd}`
+          `${API_BASE_URL}/api/attendance/weekly-summary?startDate=${weekStart}&endDate=${weekEnd}`
         );
         
         if (weeklyResponse.ok) {
@@ -762,14 +998,13 @@ const formatHours = (hours: number): string => {
     }
   };
 
-  // Fetch all attendance records for the week in a single API call
   const fetchAllAttendanceForWeek = async (weekStart: string, weekEnd: string) => {
     try {
-      console.log('Fetching bulk attendance for week:', { weekStart, weekEnd });
+      console.log('📋 Fetching bulk attendance for week:', { weekStart, weekEnd });
       
       // Use the attendance range endpoint if available
       const response = await fetch(
-        `${API_URL}/attendance/range?startDate=${weekStart}&endDate=${weekEnd}`
+        `${API_BASE_URL}/api/attendance/range?startDate=${weekStart}&endDate=${weekEnd}`
       );
       
       if (response.ok) {
@@ -792,7 +1027,6 @@ const formatHours = (hours: number): string => {
     }
   };
 
-  // Fetch attendance day by day (fallback method)
   const fetchAttendanceDayByDay = async (weekStart: string, weekEnd: string) => {
     try {
       // Create array of all dates in the week
@@ -810,7 +1044,7 @@ const formatHours = (hours: number): string => {
       const allAttendanceRecords: AttendanceRecord[] = [];
       const fetchPromises = dates.map(async (date) => {
         try {
-          const response = await fetch(`${API_URL}/attendance?date=${date}`);
+          const response = await fetch(`${API_BASE_URL}/api/attendance?date=${date}`);
           if (response.ok) {
             const data = await response.json();
             if (data.success && Array.isArray(data.data)) {
@@ -848,7 +1082,6 @@ const formatHours = (hours: number): string => {
     }
   };
 
-  // Calculate weekly summary from fetched attendance records
   const calculateWeeklySummaryFromAttendanceRecords = (records: any[], weekStart: string, weekEnd: string) => {
     const employeeMap = new Map<string, WeeklyAttendanceSummary>();
     
@@ -950,7 +1183,6 @@ const formatHours = (hours: number): string => {
     setWeeklySummaries(summaries);
   };
 
-  // Calculate from existing data in state (fallback)
   const calculateWeeklySummaryFromExistingData = (weekStart: string, weekEnd: string) => {
     // Filter existing attendance records for the week
     const weekRecords = attendanceRecords.filter(record => {
@@ -1044,7 +1276,6 @@ const formatHours = (hours: number): string => {
     setWeeklySummaries(summaries);
   };
 
-  // Show empty summary (last resort)
   const showEmptyWeeklySummary = (weekStart: string, weekEnd: string) => {
     const summaries = employees.map(employee => ({
       employeeId: employee._id,
@@ -1067,6 +1298,10 @@ const formatHours = (hours: number): string => {
 
   // Load data on component mount and when date changes
   useEffect(() => {
+    // Refresh current supervisor info
+    setCurrentSupervisor(getCurrentSupervisor());
+    
+    // Load data
     loadSupervisorAttendance();
     loadEmployees();
     loadAttendanceRecords(selectedDate);
@@ -1163,102 +1398,59 @@ const formatHours = (hours: number): string => {
     setManualAttendanceDialogOpen(true);
   };
 
-// Fix the negative hours calculation issue
-const calculateTotalHours = (checkInTime: string | null, checkOutTime: string | null): number => {
-  if (!checkInTime || !checkOutTime) return 0;
-  
-  try {
-    // Parse times safely
-    const parseTime = (timeStr: string): Date => {
-      if (timeStr.includes('T')) {
-        return new Date(timeStr);
+  // Update manual attendance submission
+  const submitManualAttendance = async () => {
+    if (!selectedEmployeeForManual) return;
+
+    try {
+      let totalHours = 0;
+      if (manualAttendanceData.checkInTime && manualAttendanceData.checkOutTime) {
+        // Use the fixed calculation function
+        totalHours = calculateTotalHours(
+          `${manualAttendanceData.date}T${manualAttendanceData.checkInTime}`,
+          `${manualAttendanceData.date}T${manualAttendanceData.checkOutTime}`
+        );
       }
+
+      const response = await fetch(`${API_BASE_URL}/api/attendance/manual`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          employeeId: selectedEmployeeForManual._id,
+          employeeName: selectedEmployeeForManual.name,
+          date: manualAttendanceData.date,
+          checkInTime: manualAttendanceData.checkInTime ? `${manualAttendanceData.date}T${manualAttendanceData.checkInTime}` : null,
+          checkOutTime: manualAttendanceData.checkOutTime ? `${manualAttendanceData.date}T${manualAttendanceData.checkOutTime}` : null,
+          breakStartTime: manualAttendanceData.breakStartTime ? `${manualAttendanceData.date}T${manualAttendanceData.breakStartTime}` : null,
+          breakEndTime: manualAttendanceData.breakEndTime ? `${manualAttendanceData.date}T${manualAttendanceData.breakEndTime}` : null,
+          status: manualAttendanceData.status,
+          remarks: manualAttendanceData.remarks,
+          totalHours: totalHours,
+          isCheckedIn: !!manualAttendanceData.checkInTime && !manualAttendanceData.checkOutTime,
+          supervisorId: currentSupervisor.supervisorId
+        }),
+      });
+
+      const data = await response.json();
       
-      // Handle time strings like "18:43"
-      const today = new Date().toISOString().split('T')[0];
-      return new Date(`${today}T${timeStr}`);
-    };
-
-    const checkIn = parseTime(checkInTime);
-    const checkOut = parseTime(checkOutTime);
-    
-    // Check if dates are valid
-    if (isNaN(checkIn.getTime()) || isNaN(checkOut.getTime())) {
-      return 0;
+      if (data.success) {
+        toast.success("Attendance recorded successfully!");
+        setManualAttendanceDialogOpen(false);
+        loadAttendanceRecords(selectedDate);
+      } else {
+        toast.error(data.message || "Error recording attendance");
+      }
+    } catch (error) {
+      console.error('Error recording attendance:', error);
+      toast.error("Error recording attendance");
     }
-    
-    // If check-out is earlier than check-in, it might be next day (for night shifts)
-    let diffMs = checkOut.getTime() - checkIn.getTime();
-    
-    // If negative, assume next day (for overnight shifts)
-    if (diffMs < 0) {
-      diffMs += 24 * 60 * 60 * 1000; // Add 24 hours
-    }
-    
-    const diffHours = diffMs / (1000 * 60 * 60);
-    
-    // Ensure hours are positive and reasonable
-    return Math.max(0, Math.min(diffHours, 24)); // Max 24 hours per day
-  } catch (error) {
-    console.error('Error calculating hours:', error);
-    return 0;
-  }
-};
-
-// Update the manual attendance submission to use the fixed calculation
-const submitManualAttendance = async () => {
-  if (!selectedEmployeeForManual) return;
-
-  try {
-    let totalHours = 0;
-    if (manualAttendanceData.checkInTime && manualAttendanceData.checkOutTime) {
-      // Use the fixed calculation function
-      totalHours = calculateTotalHours(
-        `${manualAttendanceData.date}T${manualAttendanceData.checkInTime}`,
-        `${manualAttendanceData.date}T${manualAttendanceData.checkOutTime}`
-      );
-    }
-
-    const response = await fetch(`${API_URL}/attendance/manual`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        employeeId: selectedEmployeeForManual._id,
-        employeeName: selectedEmployeeForManual.name,
-        date: manualAttendanceData.date,
-        checkInTime: manualAttendanceData.checkInTime ? `${manualAttendanceData.date}T${manualAttendanceData.checkInTime}` : null,
-        checkOutTime: manualAttendanceData.checkOutTime ? `${manualAttendanceData.date}T${manualAttendanceData.checkOutTime}` : null,
-        breakStartTime: manualAttendanceData.breakStartTime ? `${manualAttendanceData.date}T${manualAttendanceData.breakStartTime}` : null,
-        breakEndTime: manualAttendanceData.breakEndTime ? `${manualAttendanceData.date}T${manualAttendanceData.breakEndTime}` : null,
-        status: manualAttendanceData.status,
-        remarks: manualAttendanceData.remarks,
-        totalHours: totalHours,
-        isCheckedIn: !!manualAttendanceData.checkInTime && !manualAttendanceData.checkOutTime,
-        supervisorId: currentSupervisor.supervisorId
-      }),
-    });
-
-    const data = await response.json();
-    
-    if (data.success) {
-      toast.success("Attendance recorded successfully!");
-      setManualAttendanceDialogOpen(false);
-      loadAttendanceRecords(selectedDate);
-    } else {
-      toast.error(data.message || "Error recording attendance");
-    }
-  } catch (error) {
-    console.error('Error recording attendance:', error);
-    toast.error("Error recording attendance");
-  }
-};
-
+  };
 
   const handleEmployeeCheckIn = async (employee: Employee) => {
     try {
-      const response = await fetch(`${API_URL}/attendance/checkin`, {
+      const response = await fetch(`${API_BASE_URL}/api/attendance/checkin`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1286,7 +1478,7 @@ const submitManualAttendance = async () => {
 
   const handleEmployeeCheckOut = async (employee: Employee) => {
     try {
-      const response = await fetch(`${API_URL}/attendance/checkout`, {
+      const response = await fetch(`${API_BASE_URL}/api/attendance/checkout`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1312,7 +1504,7 @@ const submitManualAttendance = async () => {
 
   const handleEmployeeBreakIn = async (employee: Employee) => {
     try {
-      const response = await fetch(`${API_URL}/attendance/breakin`, {
+      const response = await fetch(`${API_BASE_URL}/api/attendance/breakin`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1338,7 +1530,7 @@ const submitManualAttendance = async () => {
 
   const handleEmployeeBreakOut = async (employee: Employee) => {
     try {
-      const response = await fetch(`${API_URL}/attendance/breakout`, {
+      const response = await fetch(`${API_BASE_URL}/api/attendance/breakout`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1417,6 +1609,10 @@ const submitManualAttendance = async () => {
   );
 
   const handleRefresh = () => {
+    // Refresh current supervisor info
+    setCurrentSupervisor(getCurrentSupervisor());
+    
+    // Refresh data
     loadSupervisorAttendance();
     loadEmployees();
     loadAttendanceRecords(selectedDate);
@@ -1450,6 +1646,37 @@ const submitManualAttendance = async () => {
         animate={{ opacity: 1, y: 0 }}
         className="p-6 space-y-6"
       >
+        {/* Current User Info */}
+        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-full bg-blue-100 dark:bg-blue-800">
+                <Shield className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+              </div>
+              <div>
+                <h3 className="font-medium text-blue-800 dark:text-blue-300">
+                  Current User: {currentSupervisor.name}
+                </h3>
+                <p className="text-sm text-blue-600 dark:text-blue-400">
+                  ID: {currentSupervisor.id} | Role: Supervisor
+                </p>
+                <p className="text-xs text-blue-500 dark:text-blue-300 mt-1">
+                  Viewing your attendance data only
+                </p>
+              </div>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleRefresh}
+              className="border-blue-300 text-blue-700 hover:bg-blue-100"
+            >
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Refresh All
+            </Button>
+          </div>
+        </div>
+
         {apiError && (
           <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 flex items-center gap-3">
             <AlertCircle className="h-5 w-5 text-yellow-600" />
@@ -1464,11 +1691,11 @@ const submitManualAttendance = async () => {
           <TabsList className="grid w-full grid-cols-3 lg:w-[600px]">
             <TabsTrigger value="my-attendance" className="flex items-center gap-2">
               <Crown className="h-4 w-4" />
-              Supervisor Attendance
+              My Attendance
             </TabsTrigger>
             <TabsTrigger value="employee-attendance" className="flex items-center gap-2">
               <Users className="h-4 w-4" />
-              Employee Attendance
+              Team Attendance
             </TabsTrigger>
             <TabsTrigger value="weekly-register" className="flex items-center gap-2">
               <FileSpreadsheet className="h-4 w-4" />
@@ -1476,13 +1703,13 @@ const submitManualAttendance = async () => {
             </TabsTrigger>
           </TabsList>
 
-          {/* Supervisor Attendance Tab */}
+          {/* My Attendance Tab - Shows ONLY current supervisor's data */}
           <TabsContent value="my-attendance" className="space-y-6">
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Clock className="h-5 w-5" />
-                  Today's Actions
+                  Today's Actions - {currentSupervisor.name}
                 </CardTitle>
                 <CardDescription>
                   Check in/out and manage breaks for today
@@ -1579,9 +1806,9 @@ const submitManualAttendance = async () => {
                 <div className="flex items-center gap-2">
                   <Calendar className="h-5 w-5" />
                   <div>
-                    <CardTitle>Supervisor Attendance History</CardTitle>
+                    <CardTitle>My Attendance History</CardTitle>
                     <CardDescription>
-                      Your supervisor attendance records
+                      Your personal attendance records
                     </CardDescription>
                   </div>
                 </div>
@@ -1597,6 +1824,11 @@ const submitManualAttendance = async () => {
                 </div>
               </CardHeader>
               <CardContent>
+                <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-700">
+                  <p className="text-sm text-blue-700 dark:text-blue-300">
+                    <strong>Note:</strong> Showing only your attendance records. You are viewing: <strong>{currentSupervisor.name}</strong>
+                  </p>
+                </div>
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -1608,6 +1840,7 @@ const submitManualAttendance = async () => {
                       <TableHead>Break Out</TableHead>
                       <TableHead className="text-right">Hours</TableHead>
                       <TableHead className="text-right">Break Time</TableHead>
+                      <TableHead>Status</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1649,13 +1882,18 @@ const submitManualAttendance = async () => {
                         <TableCell className="text-right font-medium">
                           {record.breakTime.toFixed(2)} hrs
                         </TableCell>
+                        <TableCell>
+                          <Badge className={getStatusBadge(record.status.toLowerCase())}>
+                            {record.status}
+                          </Badge>
+                        </TableCell>
                       </TableRow>
                     ))}
                     
                     {sortedAttendanceData.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-                          No attendance records found.
+                        <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
+                          No attendance records found for you.
                         </TableCell>
                       </TableRow>
                     )}
@@ -1716,8 +1954,8 @@ const submitManualAttendance = async () => {
                   <div className="flex items-center gap-2">
                     <CalendarDays className="h-5 w-5" />
                     <div>
-                      <CardTitle>Employee Attendance - {selectedDate}</CardTitle>
-                      <CardDescription>Manage attendance for all employees</CardDescription>
+                      <CardTitle>Team Attendance - {selectedDate}</CardTitle>
+                      <CardDescription>Manage attendance for team employees</CardDescription>
                     </div>
                   </div>
                   <div className="flex flex-col sm:flex-row gap-2">
@@ -1858,9 +2096,9 @@ const submitManualAttendance = async () => {
                                       "-"
                                     )}
                                   </TableCell>
-                                 <TableCell className="text-right font-medium">
-  {attendanceRecord?.totalHours ? formatHours(attendanceRecord.totalHours) : "-"}
-</TableCell>
+                                  <TableCell className="text-right font-medium">
+                                    {attendanceRecord?.totalHours ? formatHours(attendanceRecord.totalHours) : "-"}
+                                  </TableCell>
                                   <TableCell>
                                     {attendanceRecord ? (
                                       <Badge className={getStatusBadge(attendanceRecord.status)}>
@@ -1969,7 +2207,7 @@ const submitManualAttendance = async () => {
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                   <div>
                     <CardTitle>Weekly Attendance Register</CardTitle>
-                    <CardDescription>Employee-wise weekly attendance summary</CardDescription>
+                    <CardDescription>Team-wise weekly attendance summary</CardDescription>
                   </div>
                   <div className="flex items-center gap-4">
                     <div className="flex items-center gap-2">
