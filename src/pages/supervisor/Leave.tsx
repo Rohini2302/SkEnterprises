@@ -52,7 +52,8 @@ interface Employee {
   isSupervisor?: boolean;
 }
 
-const API_URL = `http://${window.location.hostname}:5001/api`;
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
+
 const Leave = () => {
   const { user, loading: authLoading } = useRole();
   
@@ -921,96 +922,7 @@ const Leave = () => {
           </div>
         </div>
 
-        {/* System Status Panel */}
-        <div className="p-3 bg-muted/30 rounded-lg">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center space-x-2">
-              <Info className="h-4 w-4" />
-              <span className="text-sm font-medium">System Status</span>
-            </div>
-            <Button 
-              variant="ghost" 
-              size="sm" 
-              onClick={() => setShowDebugInfo(!showDebugInfo)}
-              className="h-6 text-xs"
-            >
-              {showDebugInfo ? "Hide Details" : "Show Details"}
-            </Button>
-          </div>
-          
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-            <div className={`p-2 rounded text-center ${apiStatus === 'connected' ? 'bg-green-100' : 'bg-red-100'}`}>
-              <div className="text-xs font-medium">API Status</div>
-              <div className={`text-xs ${apiStatus === 'connected' ? 'text-green-700' : 'text-red-700'}`}>
-                {apiStatus === 'connected' ? '✅ Connected' : '❌ Not Connected'}
-              </div>
-            </div>
-            <div className={`p-2 rounded text-center ${user?.site ? 'bg-green-100' : 'bg-red-100'}`}>
-              <div className="text-xs font-medium">Your Site</div>
-              <div className={`text-xs ${user?.site ? 'text-green-700' : 'text-red-700'}`}>
-                {user?.site ? `✅ ${user.site}` : '❌ Not Assigned'}
-              </div>
-            </div>
-            <div className={`p-2 rounded text-center ${employees.length > 0 ? 'bg-green-100' : 'bg-yellow-100'}`}>
-              <div className="text-xs font-medium">Employees</div>
-              <div className={`text-xs ${employees.length > 0 ? 'text-green-700' : 'text-yellow-700'}`}>
-                {employees.length > 0 ? `✅ ${employees.length} found` : '⚠️ None'}
-              </div>
-            </div>
-            <div className={`p-2 rounded text-center ${supervisorDepartment ? 'bg-green-100' : 'bg-yellow-100'}`}>
-              <div className="text-xs font-medium">Department</div>
-              <div className="text-xs">
-                {supervisorDepartment ? `✅ ${supervisorDepartment}` : '⚠️ Not Selected'}
-              </div>
-            </div>
-          </div>
-          
-          {showDebugInfo && (
-            <div className="mt-3 p-2 bg-gray-100 rounded text-xs">
-              <p className="font-medium mb-1">Debug Information:</p>
-              <div className="grid grid-cols-2 gap-1">
-                <span>User Email: {user.email}</span>
-                <span>User Role: {user.role}</span>
-                <span>User Site: {user.site || "None"}</span>
-                <span>User Dept: {user.department || "None"}</span>
-                <span>Available Depts: {availableDepartments.length}</span>
-                <span>Leave Requests: {leaveRequests.length}</span>
-                <span>Selected Employee: {selectedEmployee ? "Yes" : "No"}</span>
-                <span>Apply for Self: {applyForSelf ? "Yes" : "No"}</span>
-              </div>
-              <div className="mt-2">
-                <p className="font-medium">Available Departments:</p>
-                <p>{availableDepartments.join(', ') || 'None'}</p>
-              </div>
-            </div>
-          )}
-          
-          {!user.site && (
-            <div className="mt-2 p-2 bg-red-50 rounded text-xs">
-              <p className="font-medium mb-1 text-red-700">⚠️ Site Not Assigned</p>
-              <p className="text-red-600">You don't have a site assigned. Please contact your administrator to assign a site.</p>
-            </div>
-          )}
-          
-          {user.site && employees.length === 0 && supervisorDepartment && !applyForSelf && (
-            <div className="mt-2 p-2 bg-yellow-50 rounded text-xs">
-              <p className="font-medium mb-1">⚠️ No Employees Found</p>
-              <p>Department: <strong>{supervisorDepartment}</strong></p>
-              <p>Site: <strong>{user.site}</strong></p>
-              <p className="mt-1">You can still apply for leave for yourself.</p>
-              <div className="flex flex-wrap gap-2 mt-2">
-                <Button 
-                  size="sm" 
-                  onClick={addTestEmployee}
-                  className="h-7 text-xs"
-                >
-                  <Plus className="mr-1 h-3 w-3" />
-                  Add Test Employee
-                </Button>
-              </div>
-            </div>
-          )}
-        </div>
+        {/* Removed System Status Panel */}
 
         <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center space-y-4 lg:space-y-0">
           <div className="space-y-4">

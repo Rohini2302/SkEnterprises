@@ -41,7 +41,7 @@ export interface ApiResponse<T = any> {
 }
 
 // Configuration
-const API_URL = "http://localhost:5001/api";
+
 
 // Error handling utility
 class ApiError extends Error {
