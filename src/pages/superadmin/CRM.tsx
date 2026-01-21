@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from "react";
 import { DashboardHeader } from "@/components/shared/DashboardHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,9 +10,10 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, Plus, Edit, Trash2, Phone, Mail, Calendar, Eye, MapPin, Building, Loader2 } from "lucide-react";
+import { Search, Plus, Edit, Trash2, Phone, Mail, Calendar, Eye, MapPin, Building, Loader2, Upload, Download } from "lucide-react";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
+import * as XLSX from "xlsx";
 import { 
   crmService, 
   Client, 
@@ -33,10 +33,13 @@ const CRM = () => {
   const [clientDialogOpen, setClientDialogOpen] = useState(false);
   const [leadDialogOpen, setLeadDialogOpen] = useState(false);
   const [commDialogOpen, setCommDialogOpen] = useState(false);
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [viewClientDialog, setViewClientDialog] = useState<string | null>(null);
   const [viewLeadDialog, setViewLeadDialog] = useState<string | null>(null);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
   const [editingLead, setEditingLead] = useState<Lead | null>(null);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importLoading, setImportLoading] = useState(false);
   const [loading, setLoading] = useState({
     clients: false,
     leads: false,
@@ -213,6 +216,209 @@ const CRM = () => {
     } catch (error) {
       console.error("Failed to delete client:", error);
     }
+  };
+
+  // Excel Import Functions
+  const handleImportExcel = async () => {
+    if (!importFile) {
+      toast.error("Please select a file to import");
+      return;
+    }
+    
+    setImportLoading(true);
+    
+    try {
+      const importedData = await readExcelFile(importFile);
+      const validData = validateImportData(importedData);
+      
+      if (validData.length === 0) {
+        toast.error("No valid data found in the file");
+        return;
+      }
+      
+      console.log('Data to be imported:', validData);
+      
+      let successCount = 0;
+      let errorCount = 0;
+      const errors: string[] = [];
+      
+      // Import each valid client
+      for (const clientData of validData) {
+        try {
+          // Remove the temporary _id before sending to API
+          const { _id, createdAt, updatedAt, ...clientToCreate } = clientData;
+          await crmService.clients.create(clientToCreate);
+          successCount++;
+        } catch (error: any) {
+          console.error(`Failed to import client ${clientData.name}:`, error);
+          errors.push(`${clientData.name}: ${error.message || 'Unknown error'}`);
+          errorCount++;
+        }
+      }
+      
+      if (successCount > 0) {
+        toast.success(`Successfully imported ${successCount} clients${errorCount > 0 ? `, ${errorCount} failed` : ''}`);
+        if (errors.length > 0) {
+          console.error('Import errors:', errors);
+        }
+        setImportDialogOpen(false);
+        setImportFile(null);
+        fetchAllData();
+      } else {
+        toast.error(`Failed to import any clients. ${errors[0] || 'Check the template format.'}`);
+      }
+    } catch (error) {
+      console.error("Import failed:", error);
+      toast.error("Failed to import file. Please check the format.");
+    } finally {
+      setImportLoading(false);
+    }
+  };
+
+  const readExcelFile = (file: File): Promise<any[]> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      
+      reader.onload = (e) => {
+        try {
+          const data = e.target?.result;
+          const workbook = XLSX.read(data, { type: 'binary' });
+          const sheetName = workbook.SheetNames[0];
+          const sheet = workbook.Sheets[sheetName];
+          const jsonData = XLSX.utils.sheet_to_json(sheet, { 
+            header: 1,
+            blankrows: false,
+            defval: ''
+          });
+          
+          if (jsonData.length < 2) {
+            resolve([]);
+            return;
+          }
+          
+          const headers = (jsonData[0] as string[]).map(h => h?.toString().trim() || '');
+          const rows = jsonData.slice(1) as any[];
+          
+          const formattedData = rows
+            .filter(row => {
+              return row.some((cell: any) => cell !== null && cell !== undefined && cell.toString().trim() !== '');
+            })
+            .map(row => {
+              const obj: any = {};
+              headers.forEach((header, index) => {
+                if (header && row[index] !== undefined && row[index] !== null) {
+                  obj[header] = row[index]?.toString().trim();
+                } else {
+                  obj[header] = '';
+                }
+              });
+              return obj;
+            })
+            .filter(row => row['Client Name'] || row['Company']);
+          
+          resolve(formattedData);
+        } catch (error) {
+          reject(error);
+        }
+      };
+      
+      reader.onerror = (error) => {
+        reject(error);
+      };
+      
+      reader.readAsBinaryString(file);
+    });
+  };
+
+  const validateImportData = (data: any[]): Client[] => {
+    const validClients: Client[] = [];
+    
+    data.forEach((row, index) => {
+      if (!row['Client Name'] && !row['Company']) {
+        console.warn(`Skipping row ${index + 1}: Missing client name and company`);
+        return;
+      }
+      
+      // Generate placeholder data for missing required fields
+      const clientName = row['Client Name'] || '';
+      const companyName = row['Company'] || '';
+      
+      // Generate email from client name if empty
+      let email = row['Email'] || '';
+      if (!email && clientName) {
+        const emailName = clientName.toLowerCase().replace(/[^\w\s]/g, '').replace(/\s+/g, '.');
+        email = `${emailName}@company.com`;
+      }
+      
+      // Generate phone number if empty
+      let phone = row['Phone']?.toString() || '';
+      if (!phone) {
+        // Generate a random Indian phone number
+        const randomNum = Math.floor(1000000000 + Math.random() * 9000000000);
+        phone = `9${randomNum.toString().slice(0, 9)}`;
+      }
+      
+      // Generate expected value if empty
+      let expectedValue = row['Expected Value'] || '';
+      if (!expectedValue) {
+        const randomValue = Math.floor(10 + Math.random() * 90) * 100000;
+        expectedValue = `₹${randomValue.toLocaleString('en-IN')}`;
+      }
+      
+      // Set industry if empty
+      const industry = row['Industry'] || 'COMMERCIAL';
+      
+      // Create client object from Excel data
+      const client: Client = {
+        _id: `temp-${Date.now()}-${index}`,
+        name: clientName,
+        company: companyName,
+        email: email,
+        phone: phone,
+        industry: industry,
+        city: row['City'] || 'Pune',
+        value: expectedValue,
+        address: row['Address'] || '',
+        contactPerson: '', // Add empty string as default
+        status: 'active',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      
+      if (!client.name.trim()) {
+        console.warn(`Skipping row ${index + 1}: Missing client name`);
+        return;
+      }
+      
+      if (!client.company.trim()) {
+        console.warn(`Skipping row ${index + 1}: Missing company name`);
+        return;
+      }
+      
+      validClients.push(client);
+    });
+    
+    return validClients;
+  };
+
+  const downloadTemplate = () => {
+    const templateData = [
+      ['SR. NO.', 'Client Name', 'Company', 'Email', 'Phone', 'Industry', 'City', 'Expected Value', 'Address', 'Contact Person (Optional)'],
+      ['1', 'PHOENIX MALL', 'ALYSSUM DEVELOPERS PVT LTD', 'contact@phoenixmall.com', '9876543210', 'MALL', 'PUNE', '₹50,00,000', 'WAKAD. PUNE', ''],
+      ['2', 'HIGHSTREET MALL', 'HARKRISH PROPERTIES PVT LTD', 'info@highstreetmall.com', '9876543211', 'MALL', 'PUNE', '₹75,00,000', 'HINJEWADI, PUNE', ''],
+      ['3', 'WESTEND MALL', 'CHITRALI PROPERTIES PVT LTD', 'admin@westendmall.com', '9876543212', 'MALL', 'PUNE', '₹60,00,000', 'AUNDH PUNE', ''],
+      ['4', 'GLOBAL GROUP', 'GLOBAL SQUARE REALTY LLP', 'contact@globalgroup.com', '9876543213', 'COMMERCIAL', 'PUNE', '₹80,00,000', 'YERWADA, PUNE', ''],
+      ['5', 'K RAHEJA GROUP', 'KRC INFRASTRUCTURE', 'info@kraheja.com', '9876543214', 'COMMERCIAL', 'PUNE', '₹90,00,000', 'KHARADI, PUNE', ''],
+      ['6', 'T-ONE', 'ASTITVA ASSET MANAGEMENT LLP', 'contact@t-one.com', '9876543215', 'COMMERCIAL', 'PUNE', '₹40,00,000', 'HINJEWADI, PUNE', ''],
+      ['7', 'GANGA TRUENO', 'KAPPA REALTORS PVT LTD', 'info@ganguatrueno.com', '9876543216', 'COMMERCIAL', 'PUNE', '₹55,00,000', 'VIMAN NAGAR, PUNE', ''],
+      ['', '', '', '', '', '', '', '', '', ''],
+      ['Note:', 'Required', 'Required', 'Required', 'Required', 'Required (Options: MALL, COMMERCIAL, etc.)', 'Optional', 'Required (e.g. ₹50,00,000)', 'Optional', 'Optional'],
+    ];
+    
+    const ws = XLSX.utils.aoa_to_sheet(templateData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Client Details');
+    XLSX.writeFile(wb, 'Client_Import_Template.xlsx');
   };
 
   // Lead Functions
@@ -448,6 +654,72 @@ const CRM = () => {
           </Card>
         </div>
 
+        {/* Excel Import Dialog */}
+        <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Import Clients from Excel</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="excel-file">Upload Excel File</Label>
+                <Input 
+                  id="excel-file"
+                  type="file" 
+                  accept=".xlsx,.xls,.csv"
+                  onChange={(e) => setImportFile(e.target.files?.[0] || null)}
+                />
+                <p className="text-sm text-muted-foreground">
+                  Use the template below. Required fields: Client Name, Company
+                </p>
+              </div>
+              
+              <div className="p-4 border rounded bg-muted/50">
+                <h4 className="font-medium mb-2">Template Format:</h4>
+                <div className="text-sm space-y-1">
+                  <div><strong>Column A:</strong> SR. NO. (Optional)</div>
+                  <div><strong>Column B:</strong> Client Name <span className="text-red-500">*Required</span></div>
+                  <div><strong>Column C:</strong> Company <span className="text-red-500">*Required</span></div>
+                  <div><strong>Column D:</strong> Email <span className="text-red-500">*Required</span></div>
+                  <div><strong>Column E:</strong> Phone <span className="text-red-500">*Required</span></div>
+                  <div><strong>Column F:</strong> Industry <span className="text-red-500">*Required</span></div>
+                  <div><strong>Column G:</strong> City</div>
+                  <div><strong>Column H:</strong> Expected Value <span className="text-red-500">*Required</span></div>
+                  <div><strong>Column I:</strong> Address</div>
+                  <div><strong>Column J:</strong> Contact Person (Optional)</div>
+                </div>
+                <p className="text-xs text-muted-foreground mt-2">
+                  *Required fields must have values. Use the download template button for a pre-filled example.
+                </p>
+              </div>
+              
+              <Button 
+                onClick={downloadTemplate}
+                variant="outline"
+                className="w-full"
+              >
+                <Download className="mr-2 h-4 w-4" />
+                Download Template
+              </Button>
+              
+              <Button 
+                onClick={handleImportExcel}
+                disabled={!importFile || importLoading}
+                className="w-full"
+              >
+                {importLoading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Importing...
+                  </>
+                ) : (
+                  'Import Clients'
+                )}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
         {/* Main Tabs */}
         <Tabs defaultValue="clients" className="w-full">
           <TabsList className="grid w-full grid-cols-3">
@@ -471,6 +743,13 @@ const CRM = () => {
                       className="pl-10 w-64"
                     />
                   </div>
+                  <Button 
+                    variant="outline"
+                    onClick={() => setImportDialogOpen(true)}
+                  >
+                    <Upload className="mr-2 h-4 w-4" />
+                    Import Excel
+                  </Button>
                   <Dialog open={clientDialogOpen} onOpenChange={setClientDialogOpen}>
                     <DialogTrigger asChild>
                       <Button><Plus className="mr-2 h-4 w-4" />Add Client</Button>
@@ -555,7 +834,7 @@ const CRM = () => {
                   </div>
                 ) : clients.length === 0 ? (
                   <div className="text-center py-8 text-muted-foreground">
-                    No clients found. Add your first client!
+                    No clients found. Add your first client or import from Excel!
                   </div>
                 ) : (
                   <Table>

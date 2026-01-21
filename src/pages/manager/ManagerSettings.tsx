@@ -1,322 +1,845 @@
-import { useState } from "react";
-import { useOutletContext } from "react-router-dom";
+'use client';
+
+import { useState, useEffect } from "react";
 import { DashboardHeader } from "@/components/shared/DashboardHeader";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ThemeToggle } from "@/components/shared/ThemeToggle";
-import { 
-  User, 
-  Palette, 
-  Bell, 
-  Shield, 
-  Save, 
-  RotateCcw,
-  Eye,
-  EyeOff,
-  Key,
-  Smartphone,
-  Globe,
-  Download,
-  Upload
-} from "lucide-react";
-import { toast } from "@/hooks/use-toast";
-import { motion } from "framer-motion";
 import { Switch } from "@/components/ui/switch";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ThemeToggle } from "@/components/shared/ThemeToggle";
+import { Save, User, Lock, Shield, Loader2, LogIn, Key, AlertCircle, Eye, EyeOff, Bug, Database } from "lucide-react";
+import { toast } from "sonner";
+import { motion } from "framer-motion";
 
-const ManagerSettings = () => {
-  const { onMenuClick } = useOutletContext<{ onMenuClick: () => void }>();
+const getApiUrl = () => {
+  if (typeof window === 'undefined') {
+    return 'http://localhost:5001/api';
+  }
+  return `http://${window.location.hostname}:5001/api`;
+};
+
+const API_BASE = getApiUrl();
+const SETTINGS_BASE = `${API_BASE}/settings`;
+
+// Enhanced token getter with debugging
+const getAuthToken = () => {
+  if (typeof window === 'undefined') return null;
   
-  // Profile State
-  const [profileData, setProfileData] = useState({
-    name: "Manager User",
-    email: "manager@company.com",
-    phone: "+1 234 567 8901",
-    department: "Operations",
-    position: "Operations Manager"
-  });
+  // Check all possible token locations
+  const token = localStorage.getItem('sk_token') || 
+                localStorage.getItem('token') ||
+                localStorage.getItem('auth_token') ||
+                sessionStorage.getItem('sk_token') ||
+                sessionStorage.getItem('token');
+  
+  return token;
+};
 
-  // Password State
-  const [passwordData, setPasswordData] = useState({
-    currentPassword: "",
-    newPassword: "",
-    confirmPassword: ""
+// Enhanced authFetch with detailed debugging
+const authFetch = async (url: string, options: RequestInit = {}) => {
+  const token = getAuthToken();
+  
+  if (!token) {
+    console.error('❌ No authentication token found in any storage');
+    throw new Error('No authentication token found. Please log in.');
+  }
+
+  const headers = {
+    'Authorization': `Bearer ${token}`,
+    'Content-Type': 'application/json',
+    ...options.headers
+  };
+
+  console.log(`📤 Making request to: ${url}`);
+  console.log(`📤 Method: ${options.method || 'GET'}`);
+  console.log(`📤 Headers:`, { 
+    Authorization: `Bearer ${token.substring(0, 30)}...`,
+    'Content-Type': 'application/json'
   });
-  const [showPasswords, setShowPasswords] = useState({
+  
+  if (options.body) {
+    console.log(`📤 Body:`, JSON.parse(options.body as string));
+  }
+
+  const startTime = Date.now();
+  const response = await fetch(url, { ...options, headers });
+  const endTime = Date.now();
+  
+  console.log(`📥 Response: ${response.status} ${response.statusText} (${endTime - startTime}ms)`);
+  console.log(`📥 Response headers:`, Object.fromEntries(response.headers.entries()));
+  
+  return response;
+};
+
+const Settings = () => {
+  const [loading, setLoading] = useState({
+    profile: false,
+    password: false,
+    permissions: false,
+    debug: false,
+    reset: false,
+    passwordInfo: false
+  });
+  const [showPassword, setShowPassword] = useState({
     current: false,
     new: false,
     confirm: false
   });
-
-  // Notification Preferences
-  const [notifications, setNotifications] = useState({
-    emailNotifications: true,
-    pushNotifications: false,
-    smsNotifications: true,
-    weeklyReports: true,
-    urgentAlerts: true,
-    teamUpdates: false
+  const [profileData, setProfileData] = useState({
+    name: 'Super Admin',
+    email: 'admin@skproject.com',
+    phone: '+1234567890',
   });
-
-  // Privacy Settings
-  const [privacySettings, setPrivacySettings] = useState({
-    profileVisibility: "team",
-    activityStatus: true,
-    twoFactorAuth: false,
-    dataSharing: false
+  const [passwordData, setPasswordData] = useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: ''
   });
-
-  // App Preferences
-  const [appPreferences, setAppPreferences] = useState({
-    language: "english",
-    timezone: "UTC-5",
-    dateFormat: "MM/DD/YYYY",
-    autoBackup: true,
-    compactMode: false
+  const [permissions, setPermissions] = useState({
+    canCreateAdmins: true,
+    canManageManagers: true,
+    canViewReports: true,
+    canDeleteUsers: true,
   });
+  const [backendStatus, setBackendStatus] = useState('Checking...');
+  const [apiUrl, setApiUrl] = useState('');
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authToken, setAuthToken] = useState<string | null>(null);
+  const [requestLogs, setRequestLogs] = useState<string[]>([]);
+  const [debugInfo, setDebugInfo] = useState<any>(null);
+  const [passwordInfo, setPasswordInfo] = useState<any>(null);
 
-  // Handle Profile Update
-  const handleProfileUpdate = (e: React.FormEvent) => {
-    e.preventDefault();
-    // Simulate API call
-    setTimeout(() => {
-      toast({
-        title: "Success",
-        description: "Profile updated successfully",
-      });
-    }, 1000);
+  const addLog = (message: string) => {
+    setRequestLogs(prev => [`[${new Date().toLocaleTimeString()}] ${message}`, ...prev.slice(0, 9)]);
   };
 
-  // Handle Password Change
-  const handlePasswordChange = (e: React.FormEvent) => {
-    e.preventDefault();
+  useEffect(() => {
+    const currentApiUrl = getApiUrl();
+    setApiUrl(currentApiUrl);
     
-    if (passwordData.newPassword !== passwordData.confirmPassword) {
-      toast({
-        title: "Error",
-        description: "New passwords do not match",
-        variant: "destructive"
-      });
-      return;
-    }
-
-    if (passwordData.newPassword.length < 8) {
-      toast({
-        title: "Error",
-        description: "Password must be at least 8 characters long",
-        variant: "destructive"
-      });
-      return;
-    }
-
-    // Simulate API call
-    setTimeout(() => {
-      setPasswordData({
-        currentPassword: "",
-        newPassword: "",
-        confirmPassword: ""
-      });
-      toast({
-        title: "Success",
-        description: "Password updated successfully",
-      });
-    }, 1000);
-  };
-
-  // Handle Notification Toggle
-  const handleNotificationToggle = (key: keyof typeof notifications) => {
-    setNotifications(prev => ({
-      ...prev,
-      [key]: !prev[key]
-    }));
+    // Enhanced token check
+    const token = getAuthToken();
+    setAuthToken(token);
+    setIsAuthenticated(!!token);
     
-    toast({
-      title: "Notification Updated",
-      description: `${key.replace(/([A-Z])/g, ' $1').toLowerCase()} ${!notifications[key] ? 'enabled' : 'disabled'}`,
-    });
+    console.log('📡 Settings API URL:', SETTINGS_BASE);
+    addLog(`API URL: ${SETTINGS_BASE}`);
+    addLog(`Token: ${token ? 'Found' : 'Not found'}`);
+    
+    checkBackend();
+  }, []);
+
+  const checkBackend = async () => {
+    addLog('Checking backend connection...');
+    try {
+      // Test the settings test endpoint first
+      const testRes = await authFetch(`${SETTINGS_BASE}/test`).catch(() => null);
+      
+      if (testRes?.ok) {
+        const data = await testRes.json();
+        console.log('✅ Backend test successful:', data);
+        setBackendStatus('Connected & Authenticated ✅');
+        await loadData();
+      } else if (testRes?.status === 401) {
+        setBackendStatus('Connected but not authenticated 🔒');
+        addLog('⚠️ Authentication required');
+      } else if (testRes?.status === 404) {
+        setBackendStatus('Settings endpoint not found 🔍');
+        addLog('❌ Settings endpoint not found');
+        // Try to load data anyway
+        await loadData();
+      } else {
+        setBackendStatus('Connection error ❌');
+        addLog(`❌ Test failed: ${testRes?.status}`);
+      }
+    } catch (error) {
+      console.error('❌ Backend check failed:', error);
+      setBackendStatus('Not Connected ❌');
+      addLog(`Error: ${error.message}`);
+      toast.error('Cannot connect to backend');
+      useMockData();
+    }
   };
 
-  // Handle Privacy Setting Change
-  const handlePrivacyChange = (key: keyof typeof privacySettings, value: any) => {
-    setPrivacySettings(prev => ({
-      ...prev,
-      [key]: value
-    }));
-  };
-
-  // Handle App Preference Change
-  const handleAppPreferenceChange = (key: keyof typeof appPreferences, value: any) => {
-    setAppPreferences(prev => ({
-      ...prev,
-      [key]: value
-    }));
-  };
-
-  // Reset Profile Form
-  const handleResetProfile = () => {
+  const useMockData = () => {
+    addLog('Using mock data');
     setProfileData({
-      name: "Manager User",
-      email: "manager@company.com",
-      phone: "+1 234 567 8901",
-      department: "Operations",
-      position: "Operations Manager"
+      name: 'Super Admin',
+      email: 'admin@skproject.com',
+      phone: '+1234567890',
     });
-    toast({
-      title: "Form Reset",
-      description: "Profile form has been reset to original values",
-    });
-  };
-
-  // Reset Password Form
-  const handleResetPassword = () => {
-    setPasswordData({
-      currentPassword: "",
-      newPassword: "",
-      confirmPassword: ""
-    });
-    toast({
-      title: "Form Reset",
-      description: "Password form has been cleared",
+    setPermissions({
+      canCreateAdmins: true,
+      canManageManagers: true,
+      canViewReports: true,
+      canDeleteUsers: true,
     });
   };
 
-  // Export Settings
-  const handleExportSettings = () => {
-    const settings = {
-      profile: profileData,
-      preferences: appPreferences,
-      notifications: notifications,
-      privacy: privacySettings
-    };
+  const loadData = async () => {
+    addLog('Loading data...');
+    try {
+      // Try profile endpoint
+      try {
+        const profileRes = await authFetch(`${SETTINGS_BASE}/profile`);
+        addLog(`Profile: ${profileRes.status} ${profileRes.statusText}`);
+        
+        if (profileRes.ok) {
+          const data = await profileRes.json();
+          console.log('✅ Profile data:', data);
+          if (data.success && data.data) {
+            setProfileData({
+              name: data.data.name || 'Super Admin',
+              email: data.data.email || 'admin@skproject.com',
+              phone: data.data.phone || '+1234567890',
+            });
+            addLog('✅ Profile loaded from backend');
+          }
+        }
+      } catch (error: any) {
+        addLog(`❌ Profile error: ${error.message}`);
+      }
+
+      // Try permissions endpoint
+      try {
+        const permRes = await authFetch(`${SETTINGS_BASE}/permissions`);
+        addLog(`Permissions: ${permRes.status} ${permRes.statusText}`);
+        
+        if (permRes.ok) {
+          const data = await permRes.json();
+          console.log('✅ Permissions data:', data);
+          if (data.success && data.data) {
+            setPermissions(data.data);
+            addLog('✅ Permissions loaded from backend');
+          }
+        }
+      } catch (error: any) {
+        addLog(`❌ Permissions error: ${error.message}`);
+      }
+      
+    } catch (error) {
+      console.error('❌ Load data error:', error);
+      addLog(`Load error: ${error.message}`);
+      useMockData();
+    }
+  };
+
+  const handleProfileUpdate = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setLoading({ ...loading, profile: true });
+    addLog('Updating profile...');
+
+    try {
+      const response = await authFetch(`${SETTINGS_BASE}/profile`, {
+        method: 'PUT',
+        body: JSON.stringify(profileData),
+      });
+
+      addLog(`Profile update: ${response.status} ${response.statusText}`);
+
+      if (response.ok) {
+        const data = await response.json();
+        toast.success(data.message || 'Profile updated!');
+        addLog('✅ Profile updated successfully');
+      } else if (response.status === 401) {
+        toast.error('Authentication failed. Profile not updated.');
+        addLog('❌ Auth failed for profile update');
+      } else {
+        toast.error(`Failed to update profile: ${response.status}`);
+        addLog(`❌ Profile update failed: ${response.status}`);
+      }
+    } catch (error: any) {
+      toast.error(`Error: ${error.message}`);
+      addLog(`❌ Profile update error: ${error.message}`);
+      console.error('Profile update error:', error);
+    } finally {
+      setLoading({ ...loading, profile: false });
+    }
+  };
+
+  const handlePasswordUpdate = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setLoading({ ...loading, password: true });
+    addLog('Updating password...');
+
+    const currentPassword = passwordData.currentPassword;
+    const newPassword = passwordData.newPassword;
+    const confirmPassword = passwordData.confirmPassword;
+
+    console.log('🔧 [FRONTEND] Password update attempt:', {
+      currentPasswordLength: currentPassword.length,
+      newPasswordLength: newPassword.length,
+      confirmPasswordLength: confirmPassword.length,
+      passwordsMatch: newPassword === confirmPassword
+    });
+
+    if (newPassword !== confirmPassword) {
+      toast.error("Passwords don't match!");
+      setLoading({ ...loading, password: false });
+      addLog('❌ Passwords do not match');
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      toast.error("Password must be at least 6 characters!");
+      setLoading({ ...loading, password: false });
+      addLog('❌ Password too short');
+      return;
+    }
+
+    try {
+      const response = await authFetch(`${SETTINGS_BASE}/password`, {
+        method: 'PUT',
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+
+      addLog(`Password update: ${response.status} ${response.statusText}`);
+
+      // Get the full response for debugging
+      const responseText = await response.text();
+      console.log('📥 [FRONTEND] Full server response:', responseText);
+      
+      // Try to parse the response
+      let responseData;
+      try {
+        responseData = JSON.parse(responseText);
+        console.log('📥 [FRONTEND] Parsed response:', responseData);
+      } catch (parseError) {
+        console.log('📥 [FRONTEND] Could not parse response as JSON:', responseText);
+      }
+
+      if (response.ok) {
+        toast.success(responseData?.message || 'Password updated successfully!');
+        addLog('✅ Password updated successfully');
+        
+        // Reset password fields
+        setPasswordData({
+          currentPassword: '',
+          newPassword: '',
+          confirmPassword: ''
+        });
+        
+        // Also clear the password visibility states
+        setShowPassword({
+          current: false,
+          new: false,
+          confirm: false
+        });
+      } else if (response.status === 400) {
+        // Bad Request - show specific error
+        const errorMessage = responseData?.error || 'Invalid current password or password requirements not met';
+        toast.error(errorMessage);
+        addLog(`❌ Password update failed: ${errorMessage}`);
+        
+        // Log detailed error for debugging
+        console.error('❌ [FRONTEND] Password update failed with 400:', {
+          status: response.status,
+          statusText: response.statusText,
+          error: responseData?.error,
+          fullResponse: responseData
+        });
+      } else if (response.status === 401) {
+        toast.error('Authentication failed. Password not updated.');
+        addLog('❌ Auth failed for password update');
+      } else {
+        const errorMessage = responseData?.error || `Failed to update password: ${response.status}`;
+        toast.error(errorMessage);
+        addLog(`❌ Password update failed: ${response.status}`);
+      }
+    } catch (error: any) {
+      toast.error(`Error: ${error.message}`);
+      addLog(`❌ Password update error: ${error.message}`);
+      console.error('❌ [FRONTEND] Password update error:', error);
+    } finally {
+      setLoading({ ...loading, password: false });
+    }
+  };
+
+  const handlePermissionsUpdate = async () => {
+    setLoading({ ...loading, permissions: true });
+    addLog('Updating permissions...');
+
+    try {
+      const response = await authFetch(`${SETTINGS_BASE}/permissions`, {
+        method: 'PUT',
+        body: JSON.stringify(permissions),
+      });
+
+      addLog(`Permissions update: ${response.status} ${response.statusText}`);
+
+      if (response.ok) {
+        const data = await response.json();
+        toast.success(data.message || 'Permissions updated!');
+        addLog('✅ Permissions updated successfully');
+      } else if (response.status === 401) {
+        toast.error('Authentication failed. Permissions not updated.');
+        addLog('❌ Auth failed for permissions update');
+      } else {
+        toast.error(`Failed to update permissions: ${response.status}`);
+        addLog(`❌ Permissions update failed: ${response.status}`);
+      }
+    } catch (error: any) {
+      toast.error(`Error: ${error.message}`);
+      addLog(`❌ Permissions update error: ${error.message}`);
+      console.error('Permissions update error:', error);
+    } finally {
+      setLoading({ ...loading, permissions: false });
+    }
+  };
+
+  // Debug password function
+  const handleDebugPassword = async () => {
+    setLoading({ ...loading, debug: true });
+    addLog('Debugging password...');
+
+    try {
+      const response = await authFetch(`${SETTINGS_BASE}/debug-password`);
+      const responseText = await response.text();
+      console.log('🔍 [FRONTEND] Debug response:', responseText);
+      
+      try {
+        const data = JSON.parse(responseText);
+        if (response.ok) {
+          setDebugInfo(data.data);
+          addLog('✅ Password debug info retrieved');
+          console.log('🔍 Debug info:', data.data);
+          
+          // Show which passwords match
+          const matchingPasswords = data.data.testResults.filter((r: any) => r.matches);
+          if (matchingPasswords.length > 0) {
+            toast.info(`Found matching password: ${matchingPasswords[0].password}`);
+            // Auto-fill the current password field with the found password
+            setPasswordData({
+              ...passwordData,
+              currentPassword: matchingPasswords[0].password
+            });
+          } else {
+            toast.warning('No matching passwords found in common list');
+          }
+        } else {
+          toast.error(data.error || 'Debug failed');
+          addLog(`❌ Debug failed: ${data.error}`);
+        }
+      } catch (parseError) {
+        console.error('❌ Could not parse debug response:', responseText);
+        toast.error('Invalid debug response from server');
+      }
+    } catch (error: any) {
+      toast.error(`Debug error: ${error.message}`);
+      addLog(`❌ Debug error: ${error.message}`);
+    } finally {
+      setLoading({ ...loading, debug: false });
+    }
+  };
+
+  // Get password info function
+  const handleGetPasswordInfo = async () => {
+    setLoading({ ...loading, passwordInfo: true });
+    addLog('Getting password info...');
+
+    try {
+      const response = await authFetch(`${SETTINGS_BASE}/password-info`);
+      const responseText = await response.text();
+      console.log('🔍 [FRONTEND] Password info response:', responseText);
+      
+      try {
+        const data = JSON.parse(responseText);
+        if (response.ok) {
+          setPasswordInfo(data.data);
+          addLog('✅ Password info retrieved');
+          console.log('🔍 Password info:', data.data);
+          toast.info('Password info retrieved - check console');
+        } else {
+          toast.error(data.error || 'Failed to get password info');
+          addLog(`❌ Password info failed: ${data.error}`);
+        }
+      } catch (parseError) {
+        console.error('❌ Could not parse password info response:', responseText);
+        toast.error('Invalid response from server');
+      }
+    } catch (error: any) {
+      toast.error(`Error: ${error.message}`);
+      addLog(`❌ Password info error: ${error.message}`);
+    } finally {
+      setLoading({ ...loading, passwordInfo: false });
+    }
+  };
+
+  // Reset password for testing
+  const handleResetPasswordForTesting = async () => {
+    const newPassword = prompt("Enter new password for testing:");
+    if (!newPassword) return;
     
-    // Simulate export
-    toast({
-      title: "Settings Exported",
-      description: "Your settings have been downloaded",
-    });
+    const confirm = window.confirm(`This will reset your password to "${newPassword}". Are you sure?`);
+    if (!confirm) return;
+    
+    setLoading({ ...loading, reset: true });
+    addLog(`Resetting password to: ${newPassword}`);
+
+    try {
+      const response = await authFetch(`${SETTINGS_BASE}/reset-password-test`, {
+        method: 'POST',
+        body: JSON.stringify({ newPassword }),
+      });
+      
+      const responseText = await response.text();
+      console.log('🔄 [FRONTEND] Reset response:', responseText);
+      
+      try {
+        const data = JSON.parse(responseText);
+        
+        if (response.ok) {
+          toast.success(`Password reset to "${newPassword}"`);
+          addLog(`✅ Password reset to ${newPassword}`);
+          console.log('✅ Password reset successful:', data);
+          
+          // Update the password field for easy testing
+          setPasswordData({
+            currentPassword: newPassword,
+            newPassword: '',
+            confirmPassword: ''
+          });
+          
+          toast.info(`Your current password is now: ${newPassword}`);
+        } else {
+          toast.error(data.error || 'Failed to reset password');
+          addLog(`❌ Password reset failed: ${data.error}`);
+        }
+      } catch (parseError) {
+        console.error('❌ Could not parse reset response:', responseText);
+        toast.error('Invalid response from server');
+      }
+    } catch (error: any) {
+      if (error.message.includes('404')) {
+        toast.error('Reset password endpoint not found. Make sure backend is updated.');
+        addLog('❌ Reset endpoint not found (404)');
+      } else {
+        toast.error(`Error: ${error.message}`);
+        addLog(`❌ Password reset error: ${error.message}`);
+      }
+    } finally {
+      setLoading({ ...loading, reset: false });
+    }
   };
 
-  // Import Settings
-  const handleImportSettings = () => {
-    // Simulate import
-    toast({
-      title: "Settings Imported",
-      description: "Your settings have been updated from backup",
-    });
+  const handleSetToken = () => {
+    const token = prompt("Enter your JWT token:");
+    if (token) {
+      localStorage.setItem('sk_token', token);
+      setAuthToken(token);
+      setIsAuthenticated(true);
+      toast.success('Token set! Reloading...');
+      addLog('🔑 Token set manually');
+      setTimeout(() => window.location.reload(), 1000);
+    }
   };
 
-  // Toggle password visibility
-  const togglePasswordVisibility = (field: keyof typeof showPasswords) => {
-    setShowPasswords(prev => ({
-      ...prev,
-      [field]: !prev[field]
-    }));
+  const handleLogout = () => {
+    localStorage.removeItem('sk_token');
+    localStorage.removeItem('token');
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('sk_user');
+    sessionStorage.removeItem('sk_token');
+    sessionStorage.removeItem('token');
+    setAuthToken(null);
+    setIsAuthenticated(false);
+    toast.success('Logged out');
+    addLog('🚪 User logged out');
+    setTimeout(() => window.location.reload(), 1000);
+  };
+
+  const testEndpoint = async (endpoint: string) => {
+    addLog(`Testing: ${endpoint}`);
+    try {
+      const response = await authFetch(endpoint);
+      const data = await response.json();
+      console.log(`✅ ${endpoint}:`, data);
+      addLog(`✅ ${endpoint}: ${response.status} ${response.statusText}`);
+      toast.success(`${endpoint} works!`);
+    } catch (error: any) {
+      console.error(`❌ ${endpoint}:`, error);
+      addLog(`❌ ${endpoint}: ${error.message}`);
+      toast.error(`${endpoint}: ${error.message}`);
+    }
   };
 
   return (
     <div className="min-h-screen bg-background">
-      <DashboardHeader 
-        title="Settings" 
-        subtitle="Manage your profile and preferences"
-        onMenuClick={onMenuClick}
-      />
+      <DashboardHeader title="Settings" />
+      
+      <motion.div 
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="p-6 space-y-6"
+      >
+        {/* Debug Panel */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Shield className="h-5 w-5" />
+              Connection Status
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="font-medium">Backend Status:</span>
+              <span className={`font-bold ${
+                backendStatus.includes('✅') ? 'text-green-600' : 
+                backendStatus.includes('🔒') ? 'text-yellow-600' : 
+                'text-red-600'
+              }`}>
+                {backendStatus}
+              </span>
+            </div>
+            
+            <div className="flex items-center justify-between">
+              <span className="font-medium">Authentication:</span>
+              <span className={`font-bold ${isAuthenticated ? 'text-green-600' : 'text-red-600'}`}>
+                {isAuthenticated ? 'Authenticated ✅' : 'Not Authenticated ❌'}
+              </span>
+            </div>
+            
+            <div className="flex items-center justify-between">
+              <span className="font-medium">Token Status:</span>
+              <span className={`font-bold ${authToken ? 'text-green-600' : 'text-red-600'}`}>
+                {authToken ? 'Token Found ✅' : 'No Token ❌'}
+              </span>
+            </div>
+            
+            {/* Debug Information */}
+            {debugInfo && (
+              <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-md">
+                <div className="text-xs font-semibold mb-2 flex items-center gap-1">
+                  <Bug className="h-3 w-3" /> Password Debug:
+                </div>
+                <div className="space-y-1 text-xs">
+                  <div className="flex justify-between">
+                    <span>User Email:</span>
+                    <span className="font-mono">{debugInfo.email}</span>
+                  </div>
+                  <div className="mt-2">
+                    <span className="font-semibold">Password Tests:</span>
+                    <div className="space-y-1 mt-1 max-h-20 overflow-y-auto">
+                      {debugInfo.testResults.map((result: any, index: number) => (
+                        <div key={index} className={`flex justify-between ${result.matches ? 'text-green-600 font-bold' : ''}`}>
+                          <span>{result.password}:</span>
+                          <span>{result.matches ? '✅ MATCHES' : '❌ NO MATCH'}</span>
+                        </div>
+                      ))}
+                    </div>
+                    {debugInfo.testResults.some((r: any) => r.matches) && (
+                      <div className="mt-2 p-2 bg-green-50 dark:bg-green-900/20 rounded">
+                        <p className="text-green-700 dark:text-green-300 text-xs font-semibold">
+                          💡 Found matching password! It has been auto-filled in the Current Password field.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {/* Password Info */}
+            {passwordInfo && (
+              <div className="p-3 bg-purple-50 dark:bg-purple-900/20 rounded-md">
+                <div className="text-xs font-semibold mb-2 flex items-center gap-1">
+                  <Database className="h-3 w-3" /> Database Info:
+                </div>
+                <div className="space-y-1 text-xs">
+                  <div className="flex justify-between">
+                    <span>Email:</span>
+                    <span className="font-mono">{passwordInfo.email}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Hash Exists:</span>
+                    <span className="font-mono">{passwordInfo.passwordHashExists ? 'Yes' : 'No'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Hash Length:</span>
+                    <span className="font-mono">{passwordInfo.passwordHashLength} chars</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Hash Prefix:</span>
+                    <span className="font-mono">{passwordInfo.passwordHashPrefix}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Last Changed:</span>
+                    <span className="font-mono">{passwordInfo.passwordChangedAt}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {/* Request Logs */}
+            {requestLogs.length > 0 && (
+              <div className="p-3 bg-muted rounded-md max-h-40 overflow-y-auto">
+                <div className="text-xs font-semibold mb-2">Request Logs:</div>
+                <div className="space-y-1 text-xs">
+                  {requestLogs.map((log, index) => (
+                    <div key={index} className={`font-mono ${log.includes('✅') ? 'text-green-600' : log.includes('❌') ? 'text-red-600' : log.includes('⚠️') ? 'text-yellow-600' : 'text-muted-foreground'}`}>
+                      {log}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            
+            {/* Action Buttons */}
+            <div className="grid grid-cols-2 gap-2 pt-2">
+              {!isAuthenticated ? (
+                <>
+                  <Button variant="outline" size="sm" onClick={handleSetToken}>
+                    <Key className="mr-2 h-4 w-4" /> Set Token
+                  </Button>
+                  <Button variant="default" size="sm" onClick={() => window.location.href = '/login'}>
+                    <LogIn className="mr-2 h-4 w-4" /> Go to Login
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button variant="outline" size="sm" onClick={checkBackend}>
+                    <Loader2 className="mr-2 h-4 w-4" /> Test Connection
+                  </Button>
+                  <Button variant="destructive" size="sm" onClick={handleLogout}>
+                    <LogIn className="mr-2 h-4 w-4" /> Logout
+                  </Button>
+                </>
+              )}
+            </div>
+            
+            {/* Debug Actions */}
+            {isAuthenticated && (
+              <div className="grid grid-cols-3 gap-2 pt-2">
+                <Button variant="outline" size="sm" onClick={() => testEndpoint(`${SETTINGS_BASE}/test`)}>
+                  Test API
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => testEndpoint(`${SETTINGS_BASE}/profile`)}>
+                  Test Profile
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => testEndpoint(`${SETTINGS_BASE}/permissions`)}>
+                  Test Perms
+                </Button>
+              </div>
+            )}
+            
+            {/* Password Debug Actions */}
+            {isAuthenticated && (
+              <div className="grid grid-cols-3 gap-2 pt-2 border-t">
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={handleDebugPassword}
+                  disabled={loading.debug}
+                >
+                  {loading.debug ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Bug className="mr-2 h-4 w-4" />
+                  )}
+                  Debug Password
+                </Button>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={handleGetPasswordInfo}
+                  disabled={loading.passwordInfo}
+                >
+                  {loading.passwordInfo ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Database className="mr-2 h-4 w-4" />
+                  )}
+                  DB Info
+                </Button>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={handleResetPasswordForTesting}
+                  disabled={loading.reset}
+                >
+                  {loading.reset ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Key className="mr-2 h-4 w-4" />
+                  )}
+                  Reset Password
+                </Button>
+              </div>
+            )}
+            
+            {/* Quick Instructions */}
+            {isAuthenticated && (
+              <div className="pt-2 text-xs text-muted-foreground border-t">
+                <p className="font-semibold mb-1">💡 How to fix password issue:</p>
+                <ol className="list-decimal pl-4 space-y-1">
+                  <li>Click <strong>"Debug Password"</strong> to find your current password</li>
+                  <li>If found, it auto-fills the Current Password field</li>
+                  <li>If not found, click <strong>"Reset Password"</strong> to set a new one</li>
+                  <li>Use <strong>"DB Info"</strong> to see hash details</li>
+                </ol>
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
-      <div className="p-6">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3 }}
-        >
-          <Tabs defaultValue="profile" className="space-y-6">
-            <TabsList className="grid w-full grid-cols-4">
-              <TabsTrigger value="profile">
-                <User className="h-4 w-4 mr-2" />
-                Profile
-              </TabsTrigger>
-              <TabsTrigger value="security">
-                <Shield className="h-4 w-4 mr-2" />
-                Security
-              </TabsTrigger>
-              <TabsTrigger value="notifications">
-                <Bell className="h-4 w-4 mr-2" />
-                Notifications
-              </TabsTrigger>
-              <TabsTrigger value="appearance">
-                <Palette className="h-4 w-4 mr-2" />
-                Preferences
-              </TabsTrigger>
+        {/* Settings Tabs */}
+        {isAuthenticated && (
+          <Tabs defaultValue="profile">
+            <TabsList className="grid w-full grid-cols-3">
+              <TabsTrigger value="profile">Profile</TabsTrigger>
+              <TabsTrigger value="security">Security</TabsTrigger>
+              <TabsTrigger value="permissions">Permissions</TabsTrigger>
             </TabsList>
 
             {/* Profile Tab */}
             <TabsContent value="profile">
               <Card>
                 <CardHeader>
-                  <CardTitle>Profile Information</CardTitle>
-                  <CardDescription>Update your account profile information</CardDescription>
+                  <CardTitle className="flex items-center gap-2">
+                    <User className="h-5 w-5" /> Profile Settings
+                  </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <form onSubmit={handleProfileUpdate} className="space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="name">Full Name</Label>
-                        <Input
-                          id="name"
-                          value={profileData.name}
-                          onChange={(e) => setProfileData({ ...profileData, name: e.target.value })}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="email">Email</Label>
-                        <Input
-                          id="email"
-                          type="email"
-                          value={profileData.email}
-                          onChange={(e) => setProfileData({ ...profileData, email: e.target.value })}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="phone">Phone</Label>
-                        <Input
-                          id="phone"
-                          value={profileData.phone}
-                          onChange={(e) => setProfileData({ ...profileData, phone: e.target.value })}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="department">Department</Label>
-                        <Input
-                          id="department"
-                          value={profileData.department}
-                          onChange={(e) => setProfileData({ ...profileData, department: e.target.value })}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="position">Position</Label>
-                        <Input
-                          id="position"
-                          value={profileData.position}
-                          onChange={(e) => setProfileData({ ...profileData, position: e.target.value })}
-                        />
-                      </div>
+                  <form onSubmit={handleProfileUpdate} className="space-y-6">
+                    <div className="space-y-2">
+                      <Label>Full Name</Label>
+                      <Input 
+                        value={profileData.name}
+                        onChange={(e) => setProfileData({...profileData, name: e.target.value})}
+                        disabled={loading.profile}
+                        placeholder="Enter your full name"
+                      />
                     </div>
-                    <div className="flex gap-3 pt-4">
-                      <Button type="submit" className="flex items-center gap-2">
-                        <Save className="h-4 w-4" />
-                        Save Changes
-                      </Button>
-                      <Button 
-                        type="button" 
-                        variant="outline" 
-                        onClick={handleResetProfile}
-                        className="flex items-center gap-2"
-                      >
-                        <RotateCcw className="h-4 w-4" />
-                        Reset
-                      </Button>
+                    <div className="space-y-2">
+                      <Label>Email</Label>
+                      <Input 
+                        value={profileData.email}
+                        disabled
+                        className="bg-muted"
+                      />
                     </div>
+                    <div className="space-y-2">
+                      <Label>Phone</Label>
+                      <Input 
+                        value={profileData.phone}
+                        onChange={(e) => setProfileData({...profileData, phone: e.target.value})}
+                        disabled={loading.profile}
+                        placeholder="Enter phone number"
+                      />
+                    </div>
+                    <Button type="submit" disabled={loading.profile} className="w-full">
+                      {loading.profile ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving...
+                        </>
+                      ) : (
+                        <>
+                          <Save className="mr-2 h-4 w-4" /> Save Changes
+                        </>
+                      )}
+                    </Button>
                   </form>
                 </CardContent>
               </Card>
@@ -324,327 +847,178 @@ const ManagerSettings = () => {
 
             {/* Security Tab */}
             <TabsContent value="security">
-              <div className="grid gap-6">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Change Password</CardTitle>
-                    <CardDescription>Update your password to keep your account secure</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <form onSubmit={handlePasswordChange} className="space-y-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="currentPassword">Current Password</Label>
-                        <div className="relative">
-                          <Input
-                            id="currentPassword"
-                            type={showPasswords.current ? "text" : "password"}
-                            value={passwordData.currentPassword}
-                            onChange={(e) => setPasswordData({ ...passwordData, currentPassword: e.target.value })}
-                          />
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
-                            onClick={() => togglePasswordVisibility('current')}
-                          >
-                            {showPasswords.current ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                          </Button>
-                        </div>
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="newPassword">New Password</Label>
-                        <div className="relative">
-                          <Input
-                            id="newPassword"
-                            type={showPasswords.new ? "text" : "password"}
-                            value={passwordData.newPassword}
-                            onChange={(e) => setPasswordData({ ...passwordData, newPassword: e.target.value })}
-                          />
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
-                            onClick={() => togglePasswordVisibility('new')}
-                          >
-                            {showPasswords.new ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                          </Button>
-                        </div>
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="confirmPassword">Confirm New Password</Label>
-                        <div className="relative">
-                          <Input
-                            id="confirmPassword"
-                            type={showPasswords.confirm ? "text" : "password"}
-                            value={passwordData.confirmPassword}
-                            onChange={(e) => setPasswordData({ ...passwordData, confirmPassword: e.target.value })}
-                          />
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
-                            onClick={() => togglePasswordVisibility('confirm')}
-                          >
-                            {showPasswords.confirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                          </Button>
-                        </div>
-                      </div>
-                      <div className="flex gap-3 pt-4">
-                        <Button type="submit" className="flex items-center gap-2">
-                          <Key className="h-4 w-4" />
-                          Update Password
-                        </Button>
-                        <Button 
-                          type="button" 
-                          variant="outline" 
-                          onClick={handleResetPassword}
-                          className="flex items-center gap-2"
-                        >
-                          <RotateCcw className="h-4 w-4" />
-                          Clear
-                        </Button>
-                      </div>
-                    </form>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Privacy Settings</CardTitle>
-                    <CardDescription>Control your privacy and data sharing preferences</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <div className="space-y-0.5">
-                        <Label>Two-Factor Authentication</Label>
-                        <p className="text-sm text-muted-foreground">Add an extra layer of security to your account</p>
-                      </div>
-                      <Switch
-                        checked={privacySettings.twoFactorAuth}
-                        onCheckedChange={(checked) => handlePrivacyChange('twoFactorAuth', checked)}
-                      />
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div className="space-y-0.5">
-                        <Label>Show Activity Status</Label>
-                        <p className="text-sm text-muted-foreground">Allow others to see when you're active</p>
-                      </div>
-                      <Switch
-                        checked={privacySettings.activityStatus}
-                        onCheckedChange={(checked) => handlePrivacyChange('activityStatus', checked)}
-                      />
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div className="space-y-0.5">
-                        <Label>Data Sharing</Label>
-                        <p className="text-sm text-muted-foreground">Help improve our service by sharing usage data</p>
-                      </div>
-                      <Switch
-                        checked={privacySettings.dataSharing}
-                        onCheckedChange={(checked) => handlePrivacyChange('dataSharing', checked)}
-                      />
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-            </TabsContent>
-
-            {/* Notifications Tab */}
-            <TabsContent value="notifications">
               <Card>
                 <CardHeader>
-                  <CardTitle>Notification Preferences</CardTitle>
-                  <CardDescription>Choose how you want to be notified</CardDescription>
+                  <CardTitle className="flex items-center gap-2">
+                    <Lock className="h-5 w-5" /> Change Password
+                  </CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <Label>Email Notifications</Label>
-                      <p className="text-sm text-muted-foreground">Receive notifications via email</p>
+                <CardContent>
+                  <form onSubmit={handlePasswordUpdate} className="space-y-4">
+                    <div className="space-y-2">
+                      <Label>Current Password</Label>
+                      <div className="relative">
+                        <Input 
+                          name="currentPassword" 
+                          type={showPassword.current ? "text" : "password"} 
+                          value={passwordData.currentPassword}
+                          onChange={(e) => setPasswordData({...passwordData, currentPassword: e.target.value})}
+                          disabled={loading.password}
+                          placeholder="Enter current password"
+                          required
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="absolute right-2 top-1/2 transform -translate-y-1/2 h-6 w-6"
+                          onClick={() => setShowPassword({...showPassword, current: !showPassword.current})}
+                        >
+                          {showPassword.current ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </Button>
+                      </div>
                     </div>
-                    <Switch
-                      checked={notifications.emailNotifications}
-                      onCheckedChange={() => handleNotificationToggle('emailNotifications')}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <Label>Push Notifications</Label>
-                      <p className="text-sm text-muted-foreground">Receive push notifications on your devices</p>
+                    
+                    <div className="space-y-2">
+                      <Label>New Password</Label>
+                      <div className="relative">
+                        <Input 
+                          name="newPassword" 
+                          type={showPassword.new ? "text" : "password"} 
+                          value={passwordData.newPassword}
+                          onChange={(e) => setPasswordData({...passwordData, newPassword: e.target.value})}
+                          disabled={loading.password}
+                          placeholder="Enter new password"
+                          required
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="absolute right-2 top-1/2 transform -translate-y-1/2 h-6 w-6"
+                          onClick={() => setShowPassword({...showPassword, new: !showPassword.new})}
+                        >
+                          {showPassword.new ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </Button>
+                      </div>
                     </div>
-                    <Switch
-                      checked={notifications.pushNotifications}
-                      onCheckedChange={() => handleNotificationToggle('pushNotifications')}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <Label>SMS Notifications</Label>
-                      <p className="text-sm text-muted-foreground">Receive important alerts via SMS</p>
+                    
+                    <div className="space-y-2">
+                      <Label>Confirm Password</Label>
+                      <div className="relative">
+                        <Input 
+                          name="confirmPassword" 
+                          type={showPassword.confirm ? "text" : "password"} 
+                          value={passwordData.confirmPassword}
+                          onChange={(e) => setPasswordData({...passwordData, confirmPassword: e.target.value})}
+                          disabled={loading.password}
+                          placeholder="Confirm new password"
+                          required
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="absolute right-2 top-1/2 transform -translate-y-1/2 h-6 w-6"
+                          onClick={() => setShowPassword({...showPassword, confirm: !showPassword.confirm})}
+                        >
+                          {showPassword.confirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </Button>
+                      </div>
                     </div>
-                    <Switch
-                      checked={notifications.smsNotifications}
-                      onCheckedChange={() => handleNotificationToggle('smsNotifications')}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <Label>Weekly Reports</Label>
-                      <p className="text-sm text-muted-foreground">Get weekly performance reports</p>
+                    
+                    <div className="flex space-x-2">
+                      <Button type="submit" disabled={loading.password} className="flex-1">
+                        {loading.password ? (
+                          <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Updating...</>
+                        ) : 'Update Password'}
+                      </Button>
+                      <Button 
+                        type="button" 
+                        variant="outline" 
+                        onClick={() => {
+                          setPasswordData({
+                            currentPassword: '',
+                            newPassword: '',
+                            confirmPassword: ''
+                          });
+                          setShowPassword({
+                            current: false,
+                            new: false,
+                            confirm: false
+                          });
+                          toast.info('Password fields cleared');
+                        }}
+                      >
+                        Clear
+                      </Button>
                     </div>
-                    <Switch
-                      checked={notifications.weeklyReports}
-                      onCheckedChange={() => handleNotificationToggle('weeklyReports')}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <Label>Urgent Alerts</Label>
-                      <p className="text-sm text-muted-foreground">Immediate notifications for critical issues</p>
-                    </div>
-                    <Switch
-                      checked={notifications.urgentAlerts}
-                      onCheckedChange={() => handleNotificationToggle('urgentAlerts')}
-                    />
-                  </div>
+                    
+                    {/* Debug Info */}
+                    {(debugInfo || passwordInfo) && (
+                      <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-md">
+                        <div className="text-xs">
+                          <p className="font-semibold mb-1">💡 Debug Information:</p>
+                          {debugInfo && debugInfo.testResults.some((r: any) => r.matches) ? (
+                            <p className="text-green-600">
+                              Matching password found! Current Password field has been auto-filled.
+                            </p>
+                          ) : (
+                            <p className="text-yellow-600">
+                              No matching password found. Try "Reset Password" or check backend logs.
+                            </p>
+                          )}
+                          {passwordInfo && (
+                            <p className="text-xs mt-1">
+                              Hash length: {passwordInfo.passwordHashLength} chars
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </form>
                 </CardContent>
               </Card>
             </TabsContent>
 
-            {/* Appearance & Preferences Tab */}
-            <TabsContent value="appearance">
-              <div className="grid gap-6">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Appearance</CardTitle>
-                    <CardDescription>Customize your visual experience</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <div className="space-y-0.5">
-                        <Label>Theme Mode</Label>
-                        <p className="text-sm text-muted-foreground">Toggle between light and dark mode</p>
+            {/* Permissions Tab */}
+            <TabsContent value="permissions">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Shield className="h-5 w-5" /> Permissions
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {Object.entries(permissions).map(([key, value]) => (
+                    <div key={key} className="flex justify-between items-center">
+                      <div>
+                        <Label className="capitalize">
+                          {key.replace(/([A-Z])/g, ' $1').trim()}
+                        </Label>
                       </div>
-                      <ThemeToggle />
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div className="space-y-0.5">
-                        <Label>Compact Mode</Label>
-                        <p className="text-sm text-muted-foreground">Use compact layout for better space utilization</p>
-                      </div>
-                      <Switch
-                        checked={appPreferences.compactMode}
-                        onCheckedChange={(checked) => handleAppPreferenceChange('compactMode', checked)}
+                      <Switch 
+                        checked={value}
+                        onCheckedChange={(checked) => 
+                          setPermissions({...permissions, [key]: checked})
+                        }
+                        disabled={loading.permissions}
                       />
                     </div>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Application Preferences</CardTitle>
-                    <CardDescription>Configure your application settings</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="language">Language</Label>
-                      <Select
-                        value={appPreferences.language}
-                        onValueChange={(value) => handleAppPreferenceChange('language', value)}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select language" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="english">English</SelectItem>
-                          <SelectItem value="spanish">Spanish</SelectItem>
-                          <SelectItem value="french">French</SelectItem>
-                          <SelectItem value="german">German</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="timezone">Timezone</Label>
-                      <Select
-                        value={appPreferences.timezone}
-                        onValueChange={(value) => handleAppPreferenceChange('timezone', value)}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select timezone" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="UTC-5">EST (UTC-5)</SelectItem>
-                          <SelectItem value="UTC-8">PST (UTC-8)</SelectItem>
-                          <SelectItem value="UTC+0">GMT (UTC+0)</SelectItem>
-                          <SelectItem value="UTC+1">CET (UTC+1)</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="dateFormat">Date Format</Label>
-                      <Select
-                        value={appPreferences.dateFormat}
-                        onValueChange={(value) => handleAppPreferenceChange('dateFormat', value)}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select date format" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="MM/DD/YYYY">MM/DD/YYYY</SelectItem>
-                          <SelectItem value="DD/MM/YYYY">DD/MM/YYYY</SelectItem>
-                          <SelectItem value="YYYY-MM-DD">YYYY-MM-DD</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div className="space-y-0.5">
-                        <Label>Auto Backup</Label>
-                        <p className="text-sm text-muted-foreground">Automatically backup your settings</p>
-                      </div>
-                      <Switch
-                        checked={appPreferences.autoBackup}
-                        onCheckedChange={(checked) => handleAppPreferenceChange('autoBackup', checked)}
-                      />
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Backup & Restore</CardTitle>
-                    <CardDescription>Manage your settings backup</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="flex gap-3">
-                      <Button 
-                        onClick={handleExportSettings}
-                        variant="outline"
-                        className="flex items-center gap-2"
-                      >
-                        <Download className="h-4 w-4" />
-                        Export Settings
-                      </Button>
-                      <Button 
-                        onClick={handleImportSettings}
-                        variant="outline"
-                        className="flex items-center gap-2"
-                      >
-                        <Upload className="h-4 w-4" />
-                        Import Settings
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
+                  ))}
+                  <Button onClick={handlePermissionsUpdate} disabled={loading.permissions} className="w-full">
+                    {loading.permissions ? (
+                      <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving...</>
+                    ) : 'Save Permissions'}
+                  </Button>
+                </CardContent>
+              </Card>
             </TabsContent>
           </Tabs>
-        </motion.div>
-      </div>
+        )}
+      </motion.div>
     </div>
   );
 };
 
-export default ManagerSettings;
+export default Settings;

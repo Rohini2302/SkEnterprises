@@ -7,6 +7,8 @@ import path from 'path';
 import fs from 'fs';
 import { v2 as cloudinary } from "cloudinary";
 import User, { IUser } from './models/User';
+import excelImportRoutes from './routes/employeeImportExport.routes';
+import { PasswordFixer } from './utils/passwordFixer';
 
 // Import all routes
 import deductionRoutes from './routes/deductionRoutes';
@@ -36,9 +38,10 @@ import invoiceRoutes from './routes/invoiceRoutes';
 import managerLeaveRoutes from './routes/managerLeaveRoutes';
 import attendanceRoutes from './routes/attendanceRoutes';
 import supervisorRoutes from './routes/supervisorRoutes';
-// Add these imports
+import dashboardRoutes from './routes/dashboardRoutes';
 import trainingRoutes from './routes/trainingRoutes';
 import briefingRoutes from './routes/briefingRoutes';
+import settingsRoutes from './routes/settings';
 
 const app: Application = express();
 
@@ -161,6 +164,38 @@ const simpleUpload = multer({
 // ==================== DATABASE CONNECTION ====================
 connectDB();
 
+// ==================== PASSWORD FIXER ON STARTUP ====================
+const runPasswordFixer = async () => {
+  try {
+    // Wait for MongoDB connection
+    if (mongoose.connection.readyState !== 1) {
+      console.log('⏳ Waiting for MongoDB connection...');
+      await new Promise(resolve => {
+        mongoose.connection.once('connected', resolve);
+      });
+    }
+    
+    console.log('\n🔧 [STARTUP] Running password health check...');
+    const fixResult = await PasswordFixer.checkAndFixUnhashedPasswords();
+    
+    if (fixResult.fixedCount > 0) {
+      console.log(`\n⚠️ [STARTUP] IMPORTANT: Fixed ${fixResult.fixedCount} unhashed passwords.`);
+      console.log('💡 [STARTUP] Users may need to use their original plain-text passwords until they change them.');
+    } else if (fixResult.success && fixResult.alreadyHashedCount === fixResult.totalUsers) {
+      console.log('✅ [STARTUP] All passwords are already properly hashed!');
+    }
+    
+    if (fixResult.errorCount > 0) {
+      console.warn(`⚠️ [STARTUP] Had ${fixResult.errorCount} errors during password check`);
+    }
+    
+    console.log('✅ [STARTUP] Password health check completed\n');
+  } catch (error: any) {
+    console.error('❌ [STARTUP] Password fixer failed:', error.message);
+    console.log('⚠️ [STARTUP] Continuing server startup despite password fixer error');
+  }
+};
+
 // ==================== LOGGING & CACHING MIDDLEWARE ====================
 app.use((req, res, next) => {
   console.log(`${new Date().toISOString()} ${req.method} ${req.url}`);
@@ -180,13 +215,15 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 // Serve static files
+app.use('/api/auth', authRoutes);
+app.use('/api/import', excelImportRoutes);
+app.use('/api/settings', settingsRoutes);
+console.log('✅ Settings routes registered at /api/settings');
 app.use('/api', uploadRoutes);
 app.use('/uploads', express.static('uploads'));
 app.use('/api/work-queries', workQueryRoutes);
-
 app.use('/api/alerts',alertRoutes);
 app.use('/api/machines', machineRoutes);
-
 app.use('/api/services', serviceRoutes);
 app.use('/api/invoices', invoiceRoutes);
 app.use('/api/manager-leaves', managerLeaveRoutes); // Add this line
@@ -194,6 +231,8 @@ app.use('/api/attendance', attendanceRoutes);
 app.use('/api/supervisors', supervisorRoutes);
 app.use('/api/trainings', trainingRoutes);
 app.use('/api/briefings', briefingRoutes);
+app.use('/api/dashboard', dashboardRoutes);
+
 // ==================== BASIC TEST ENDPOINTS ====================
 app.get('/', (req: Request, res: Response) => {
   res.json({ 
@@ -623,13 +662,36 @@ app.get('/api/users/search/:query', async (req: Request, res: Response) => {
   }
 });
 
+// ==================== PASSWORD HEALTH CHECK ENDPOINT ====================
+app.get('/api/password-health', async (req: Request, res: Response) => {
+  try {
+    console.log('🔍 Password health check requested');
+    
+    const result = await PasswordFixer.checkAndFixUnhashedPasswords();
+    
+    res.status(200).json({
+      success: true,
+      message: 'Password health check completed',
+      data: result
+    });
+  } catch (error: any) {
+    console.error('❌ Password health check error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error checking password health',
+      error: error.message
+    });
+  }
+});
+
 // ==================== ROUTE REGISTRATION ====================
 // IMPORTANT: Register all imported routes AFTER basic routes
+app.use('/api/employees', employeeRoutes);
 // Auth routes
 app.use('/api/auth', authRoutes);
 
 // HR & Payroll routes
-app.use('/api/employees', employeeRoutes);
+//app.use('/api/employees', employeeRoutes);
 app.use('/api/epf-forms', epfRoutes);
 app.use('/api/shifts', shiftRoutes);
 app.use('/api/deductions', deductionRoutes);
@@ -735,16 +797,46 @@ app.use((error: Error, req: Request, res: Response, next: Function) => {
 
 const PORT = process.env.PORT || 5001;
 
-// Start server
-// if (require.main === module) {
-//   app.listen(PORT, () => {
-//     console.log(`🚀 Server running on port ${PORT}`);
-//     console.log(`📊 Database: ${mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected'}`);
-//     console.log(`🌐 Base URL: http://localhost:${PORT}`);
-//     console.log(`👤 Users endpoint: http://localhost:${PORT}/api/users`);
-//     console.log(`☁️ Cloudinary: ${process.env.CLOUDINARY_CLOUD_NAME ? 'Configured' : 'Not Configured'}`);
-//   });
-// }
+// Start server with password fixer
+const startServer = async () => {
+  try {
+    // Start the server
+    app.listen(PORT, async () => {
+      console.log(`🚀 Server running on port ${PORT}`);
+      console.log(`📊 Database: ${mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected'}`);
+      console.log(`🌐 Base URL: http://localhost:${PORT}`);
+      console.log(`👤 Users endpoint: http://localhost:${PORT}/api/users`);
+      console.log(`🔐 Password health: http://localhost:${PORT}/api/password-health`);
+      console.log(`☁️ Cloudinary: ${process.env.CLOUDINARY_CLOUD_NAME ? 'Configured' : 'Not Configured'}`);
+      
+      // Run password fixer after server starts
+      setTimeout(runPasswordFixer, 2000); // Wait 2 seconds for server to stabilize
+    });
+  } catch (error: any) {
+    console.error('❌ Failed to start server:', error);
+    process.exit(1);
+  }
+};
+
+// Graceful shutdown
+process.on('SIGINT', async () => {
+  console.log('\n🔌 Shutting down gracefully...');
+  await mongoose.disconnect();
+  console.log('✅ MongoDB disconnected');
+  process.exit(0);
+});
+
+process.on('SIGTERM', async () => {
+  console.log('\n🔌 Received SIGTERM, shutting down...');
+  await mongoose.disconnect();
+  console.log('✅ MongoDB disconnected');
+  process.exit(0);
+});
 
 // Export upload for use in other files
 export { app, upload, simpleUpload, cloudinary };
+
+// Start the server
+if (require.main === module) {
+  startServer();
+}

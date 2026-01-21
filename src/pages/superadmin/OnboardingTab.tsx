@@ -8,9 +8,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { FileText, Plus, Upload, Trash2, Camera, X, Save, Edit, Download, Loader2, UserCheck, User } from "lucide-react";
 import { toast } from "sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import * as XLSX from 'xlsx';
 
 // Define the API Base URL
 const API_URL = `http://${window.location.hostname}:5001/api`;
+
 // Types
 interface Employee {
   _id: string;
@@ -30,7 +33,6 @@ interface Employee {
   esicNumber?: string;
   panNumber?: string;
   photo?: string;
-  // Additional fields
   siteName?: string;
   dateOfBirth?: string;
   bloodGroup?: string;
@@ -86,7 +88,6 @@ interface SalaryStructure {
 }
 
 interface NewEmployeeForm {
-  // Basic Information
   name: string;
   email: string;
   phone: string;
@@ -94,8 +95,6 @@ interface NewEmployeeForm {
   panNumber: string;
   esicNumber: string;
   uanNumber: string;
-  
-  // Personal Details
   siteName: string;
   dateOfBirth: string;
   dateOfJoining: string;
@@ -103,50 +102,32 @@ interface NewEmployeeForm {
   bloodGroup: string;
   gender?: string;
   maritalStatus?: string;
-  
-  // Address
   permanentAddress: string;
   permanentPincode: string;
   localAddress: string;
   localPincode: string;
-  
-  // Bank Details
   bankName: string;
   accountNumber: string;
   ifscCode: string;
   branchName: string;
-  
-  // Family Details
   fatherName: string;
   motherName: string;
   spouseName: string;
   numberOfChildren: string;
-  
-  // Emergency Contact
   emergencyContactName: string;
   emergencyContactPhone: string;
   emergencyContactRelation: string;
-  
-  // Nominee Details
   nomineeName: string;
   nomineeRelation: string;
-  
-  // Uniform Details
   pantSize: string;
   shirtSize: string;
   capSize: string;
-  
-  // Issued Items
   idCardIssued: boolean;
   westcoatIssued: boolean;
   apronIssued: boolean;
-  
-  // Employment Details
   department: string;
   position: string;
   salary: string;
-  
-  // Documents
   photo: File | null;
   employeeSignature: File | null;
   authorizedSignature: File | null;
@@ -161,27 +142,22 @@ interface EPFForm11Data {
   maritalStatus: string;
   email: string;
   mobileNumber: string;
-  
   previousEPFMember: boolean;
   previousPensionMember: boolean;
-  
   previousUAN: string;
   previousPFAccountNumber: string;
   dateOfExit: string;
   schemeCertificateNumber: string;
   pensionPaymentOrder: string;
-  
   internationalWorker: boolean;
   countryOfOrigin: string;
   passportNumber: string;
   passportValidityFrom: string;
   passportValidityTo: string;
-  
   bankAccountNumber: string;
   ifscCode: string;
   aadharNumber: string;
   panNumber: string;
-  
   firstEPFMember: boolean;
   enrolledDate: string;
   firstEmploymentWages: string;
@@ -189,7 +165,6 @@ interface EPFForm11Data {
   epfAmountWithdrawn: boolean;
   epsAmountWithdrawn: boolean;
   epsAmountWithdrawnAfterSep2014: boolean;
-  
   declarationDate: string;
   declarationPlace: string;
   employerDeclarationDate: string;
@@ -343,6 +318,12 @@ const OnboardingTab = ({
     employerDeclarationDate: new Date().toISOString().split("T")[0]
   });
 
+  // Excel import states
+  const [excelData, setExcelData] = useState<NewEmployeeForm[]>([]);
+  const [showExcelPreview, setShowExcelPreview] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState(0);
+
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -350,12 +331,453 @@ const OnboardingTab = ({
   const signatureEmployeeRef = useRef<HTMLInputElement>(null);
   const signatureAuthorizedRef = useRef<HTMLInputElement>(null);
   const documentUploadRef = useRef<HTMLInputElement>(null);
+  const excelImportRef = useRef<HTMLInputElement>(null);
+
+  // Helper functions for Excel import
+  const parseExcelDate = (excelDate: any): string => {
+    if (!excelDate) return '';
+    
+    try {
+      // If it's already a date string with time (like "2023-09-04 00:00:00")
+      if (typeof excelDate === 'string') {
+        const datePart = excelDate.split(' ')[0];
+        return datePart;
+      }
+      
+      // If it's an Excel serial number
+      if (typeof excelDate === 'number') {
+        const date = new Date(Math.round((excelDate - 25569) * 86400 * 1000));
+        return date.toISOString().split('T')[0];
+      }
+      
+      // If it's a Date object
+      if (excelDate instanceof Date) {
+        return excelDate.toISOString().split('T')[0];
+      }
+      
+      return '';
+    } catch (error) {
+      console.error('Error parsing date:', error, excelDate);
+      return '';
+    }
+  };
+
+  const parseBooleanField = (value: any): boolean => {
+    if (value === null || value === undefined) return false;
+    
+    const stringValue = String(value).toLowerCase().trim();
+    
+    if (stringValue === 'yes' || stringValue === 'true' || stringValue === '1') {
+      return true;
+    }
+    
+    if (stringValue === 'no' || stringValue === 'false' || stringValue === '0') {
+      return false;
+    }
+    
+    // Check for checkboxes or marks
+    if (stringValue === '✓' || stringValue === '✔' || stringValue === 'x') {
+      return true;
+    }
+    
+    // If it's just text but not empty, assume true
+    if (stringValue !== '') {
+      return true;
+    }
+    
+    return false;
+  };
+
+  // Excel import handler
+  const handleExcelImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setImporting(true);
+      
+      // Read the Excel file
+      const reader = new FileReader();
+      
+      reader.onload = (e) => {
+        try {
+          const data = e.target?.result;
+          const workbook = XLSX.read(data, { type: 'binary' });
+          
+          // Get the first sheet
+          const sheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[sheetName];
+          
+          // Convert to JSON
+          const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+          
+          if (jsonData.length < 2) {
+            toast.error("Excel file is empty or has no data");
+            setImporting(false);
+            return;
+          }
+          
+          // Get headers (first row)
+          const headers = jsonData[0] as string[];
+          
+          // Process data rows
+          const processedData: NewEmployeeForm[] = [];
+          
+          for (let i = 1; i < jsonData.length; i++) {
+            const row = jsonData[i] as any[];
+            if (!row || row.every(cell => cell === null || cell === undefined || cell === '')) {
+              continue; // Skip empty rows
+            }
+            
+            const employeeData: any = resetNewEmployeeForm();
+            
+            // Map Excel columns to form fields
+            headers.forEach((header, index) => {
+              const cellValue = row[index];
+              
+              if (cellValue !== null && cellValue !== undefined && cellValue !== '') {
+                switch (header.trim()) {
+                  case 'Site Name':
+                    employeeData.siteName = String(cellValue);
+                    break;
+                  case 'Employee Name':
+                    employeeData.name = String(cellValue);
+                    break;
+                  case 'Date of Birth':
+                    employeeData.dateOfBirth = parseExcelDate(cellValue);
+                    break;
+                  case 'Date of Joining':
+                    employeeData.dateOfJoining = parseExcelDate(cellValue);
+                    break;
+                  case 'Date of Exit':
+                    employeeData.dateOfExit = parseExcelDate(cellValue);
+                    break;
+                  case 'Contact No':
+                    employeeData.phone = String(cellValue).replace(/\D/g, '').slice(0, 10);
+                    break;
+                  case 'Blood Group':
+                    employeeData.bloodGroup = String(cellValue).trim();
+                    break;
+                  case 'Email':
+                    employeeData.email = String(cellValue).toLowerCase().trim();
+                    break;
+                  case 'Aadhar Number':
+                    employeeData.aadharNumber = String(cellValue).replace(/\D/g, '').slice(0, 12);
+                    break;
+                  case 'PAN Number':
+                    employeeData.panNumber = String(cellValue).toUpperCase().trim();
+                    break;
+                  case 'ESIC Number':
+                    employeeData.esicNumber = String(cellValue);
+                    break;
+                  case 'PF/UAN Number':
+                    employeeData.uanNumber = String(cellValue);
+                    break;
+                  case 'Permanent Address':
+                    employeeData.permanentAddress = String(cellValue);
+                    break;
+                  case 'Permanent Pin Code':
+                    employeeData.permanentPincode = String(cellValue).replace(/\D/g, '').slice(0, 6);
+                    break;
+                  case 'Local Address':
+                    employeeData.localAddress = String(cellValue);
+                    break;
+                  case 'Local Pin Code':
+                    employeeData.localPincode = String(cellValue).replace(/\D/g, '').slice(0, 6);
+                    break;
+                  case 'Bank Name':
+                    employeeData.bankName = String(cellValue);
+                    break;
+                  case 'Account Number':
+                    employeeData.accountNumber = String(cellValue);
+                    break;
+                  case 'IFSC Code':
+                    employeeData.ifscCode = String(cellValue).toUpperCase().trim();
+                    break;
+                  case 'Branch Name':
+                    employeeData.branchName = String(cellValue);
+                    break;
+                  case "Father's Name":
+                    employeeData.fatherName = String(cellValue);
+                    break;
+                  case "Mother's Name":
+                    employeeData.motherName = String(cellValue);
+                    break;
+                  case 'Spouse Name':
+                    employeeData.spouseName = String(cellValue);
+                    break;
+                  case 'Number of Children':
+                    employeeData.numberOfChildren = isNaN(Number(cellValue)) ? '' : String(Number(cellValue));
+                    break;
+                  case 'Emergency Contact Name':
+                    employeeData.emergencyContactName = String(cellValue);
+                    break;
+                  case 'Emergency Contact Phone':
+                    employeeData.emergencyContactPhone = String(cellValue).replace(/\D/g, '').slice(0, 10);
+                    break;
+                  case 'Relation':
+                    employeeData.emergencyContactRelation = String(cellValue);
+                    break;
+                  case 'Nominee Name':
+                    employeeData.nomineeName = String(cellValue);
+                    break;
+                  case 'Nominee Relation':
+                    employeeData.nomineeRelation = String(cellValue);
+                    break;
+                  case 'Pant Size':
+                    employeeData.pantSize = String(cellValue);
+                    break;
+                  case 'Shirt Size':
+                    employeeData.shirtSize = String(cellValue);
+                    break;
+                  case 'Cap Size':
+                    employeeData.capSize = String(cellValue);
+                    break;
+                  case 'ID Card Issued':
+                    employeeData.idCardIssued = parseBooleanField(cellValue);
+                    break;
+                  case 'Westcoat Issued':
+                    employeeData.westcoatIssued = parseBooleanField(cellValue);
+                    break;
+                  case 'Apron Issued':
+                    employeeData.apronIssued = parseBooleanField(cellValue);
+                    break;
+                  case 'Department':
+                    employeeData.department = String(cellValue);
+                    break;
+                  case 'Position':
+                    employeeData.position = String(cellValue);
+                    break;
+                  case 'Monthly Salary':
+                    employeeData.salary = isNaN(Number(cellValue)) ? '' : String(Number(cellValue));
+                    break;
+                }
+              }
+            });
+            
+            // Only add if there's at least a name
+            if (employeeData.name && employeeData.name.trim() !== '') {
+              processedData.push(employeeData);
+            }
+          }
+          
+          setExcelData(processedData);
+          setShowExcelPreview(true);
+          toast.success(`Loaded ${processedData.length} employees from Excel`);
+          
+        } catch (error) {
+          console.error('Error processing Excel:', error);
+          toast.error('Error reading Excel file. Please check the format.');
+        } finally {
+          setImporting(false);
+        }
+      };
+      
+      reader.onerror = () => {
+        toast.error('Error reading file');
+        setImporting(false);
+      };
+      
+      reader.readAsBinaryString(file);
+      
+    } catch (error) {
+      console.error('Excel import error:', error);
+      toast.error('Failed to import Excel file');
+      setImporting(false);
+    }
+  };
+
+  // Bulk import function
+  const handleBulkImport = async () => {
+    if (excelData.length === 0) {
+      toast.error('No data to import');
+      return;
+    }
+
+    setImporting(true);
+    setImportProgress(0);
+    
+    const successfulImports: Employee[] = [];
+    const failedImports: { name: string; error: string }[] = [];
+    
+    try {
+      for (let i = 0; i < excelData.length; i++) {
+        const employeeData = excelData[i];
+        
+        try {
+          // Skip if essential fields are missing
+          if (!employeeData.name || !employeeData.email || !employeeData.aadharNumber) {
+            failedImports.push({
+              name: employeeData.name || 'Unknown',
+              error: 'Missing required fields (Name, Email, or Aadhar)'
+            });
+            continue;
+          }
+
+          // Create FormData for each employee
+          const formData = new FormData();
+          
+          // Add employee data
+          const employeeDataToSend = {
+            name: employeeData.name,
+            email: employeeData.email,
+            phone: employeeData.phone || '',
+            aadharNumber: employeeData.aadharNumber,
+            panNumber: employeeData.panNumber || '',
+            esicNumber: employeeData.esicNumber || '',
+            uanNumber: employeeData.uanNumber || '',
+            siteName: employeeData.siteName || '',
+            dateOfBirth: employeeData.dateOfBirth || '',
+            dateOfJoining: employeeData.dateOfJoining || new Date().toISOString().split("T")[0],
+            dateOfExit: employeeData.dateOfExit || '',
+            bloodGroup: employeeData.bloodGroup || '',
+            gender: employeeData.gender || '',
+            maritalStatus: employeeData.maritalStatus || '',
+            permanentAddress: employeeData.permanentAddress || '',
+            permanentPincode: employeeData.permanentPincode || '',
+            localAddress: employeeData.localAddress || '',
+            localPincode: employeeData.localPincode || '',
+            bankName: employeeData.bankName || '',
+            accountNumber: employeeData.accountNumber || '',
+            ifscCode: employeeData.ifscCode || '',
+            branchName: employeeData.branchName || '',
+            fatherName: employeeData.fatherName || '',
+            motherName: employeeData.motherName || '',
+            spouseName: employeeData.spouseName || '',
+            numberOfChildren: employeeData.numberOfChildren || '',
+            emergencyContactName: employeeData.emergencyContactName || '',
+            emergencyContactPhone: employeeData.emergencyContactPhone || '',
+            emergencyContactRelation: employeeData.emergencyContactRelation || '',
+            nomineeName: employeeData.nomineeName || '',
+            nomineeRelation: employeeData.nomineeRelation || '',
+            pantSize: employeeData.pantSize || '',
+            shirtSize: employeeData.shirtSize || '',
+            capSize: employeeData.capSize || '',
+            idCardIssued: employeeData.idCardIssued || false,
+            westcoatIssued: employeeData.westcoatIssued || false,
+            apronIssued: employeeData.apronIssued || false,
+            department: employeeData.department || '',
+            position: employeeData.position || '',
+            salary: employeeData.salary || '0'
+          };
+
+          // Append all data
+          Object.entries(employeeDataToSend).forEach(([key, value]) => {
+            if (value !== undefined && value !== null && value !== '') {
+              formData.append(key, value.toString());
+            }
+          });
+
+          // Send to backend
+          const response = await fetch(`${API_URL}/employees`, {
+            method: "POST",
+            body: formData
+          });
+
+          const data = await response.json();
+
+          if (response.ok && data.employee) {
+            successfulImports.push(data.employee);
+          } else {
+            failedImports.push({
+              name: employeeData.name,
+              error: data.message || 'Unknown error'
+            });
+          }
+          
+        } catch (error: any) {
+          failedImports.push({
+            name: employeeData.name || 'Unknown',
+            error: error.message || 'Unknown error'
+          });
+        }
+        
+        // Update progress
+        setImportProgress(Math.round(((i + 1) / excelData.length) * 100));
+      }
+      
+      // Update employees list
+      if (successfulImports.length > 0) {
+        setEmployees(prev => [...prev, ...successfulImports]);
+        toast.success(`Successfully imported ${successfulImports.length} employees`);
+      }
+      
+      // Show errors if any
+      if (failedImports.length > 0) {
+        toast.error(`${failedImports.length} employees failed to import`);
+        console.log('Failed imports:', failedImports);
+      }
+      
+      // Reset
+      setExcelData([]);
+      setShowExcelPreview(false);
+      
+    } catch (error) {
+      console.error('Bulk import error:', error);
+      toast.error('Error during bulk import');
+    } finally {
+      setImporting(false);
+      setImportProgress(0);
+    }
+  };
+
+  // Download template function
+  const downloadExcelTemplate = () => {
+    const headers = [
+      'Site Name',
+      'Employee Name',
+      'Date of Birth',
+      'Date of Joining',
+      'Date of Exit',
+      'Contact No',
+      'Blood Group',
+      'Email',
+      'Aadhar Number',
+      'PAN Number',
+      'ESIC Number',
+      'PF/UAN Number',
+      'Permanent Address',
+      'Permanent Pin Code',
+      'Local Address',
+      'Local Pin Code',
+      'Bank Name',
+      'Account Number',
+      'IFSC Code',
+      'Branch Name',
+      "Father's Name",
+      "Mother's Name",
+      'Spouse Name',
+      'Number of Children',
+      'Emergency Contact Name',
+      'Emergency Contact Phone',
+      'Relation',
+      'Nominee Name',
+      'Nominee Relation',
+      'Pant Size',
+      'Shirt Size',
+      'Cap Size',
+      'ID Card Issued',
+      'Westcoat Issued',
+      'Apron Issued',
+      'Department',
+      'Position',
+      'Monthly Salary'
+    ];
+
+    const data = [headers];
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Template');
+    
+    XLSX.writeFile(wb, 'Employee_Import_Template.xlsx');
+    toast.success('Template downloaded successfully');
+  };
 
   // Initialize EPF Form with employee data
   const initializeEPFForm = (employee: Employee) => {
     setCreatedEmployeeData(employee);
     
-    const today = new Date().toISOString().split("T")[0];
+    const today = new Date().toISOString().split('T')[0];
     
     // Safely get salary with fallbacks
     let salaryValue = 0;
@@ -375,27 +797,22 @@ const OnboardingTab = ({
       maritalStatus: employee.maritalStatus || "",
       email: employee.email || "",
       mobileNumber: employee.phone || "",
-      
       previousEPFMember: false,
       previousPensionMember: false,
-      
       previousUAN: employee.uanNumber || employee.uan || "",
       previousPFAccountNumber: "",
       dateOfExit: "",
       schemeCertificateNumber: "",
       pensionPaymentOrder: "",
-      
       internationalWorker: false,
       countryOfOrigin: "",
       passportNumber: "",
       passportValidityFrom: "",
       passportValidityTo: "",
-      
       bankAccountNumber: employee.accountNumber || "",
       ifscCode: employee.ifscCode || "",
       aadharNumber: employee.aadharNumber || "",
       panNumber: employee.panNumber || "",
-      
       firstEPFMember: true,
       enrolledDate: employee.joinDate || employee.dateOfJoining || today,
       firstEmploymentWages: salaryValue.toString() || "0",
@@ -403,7 +820,6 @@ const OnboardingTab = ({
       epfAmountWithdrawn: false,
       epsAmountWithdrawn: false,
       epsAmountWithdrawnAfterSep2014: false,
-      
       declarationDate: today,
       declarationPlace: "Mumbai",
       employerDeclarationDate: today
@@ -573,205 +989,76 @@ const OnboardingTab = ({
     }
   };
 
-  const handleAddEmployee = async () => {
-    // Validate required fields
-    if (!newEmployee.name || !newEmployee.email || !newEmployee.aadharNumber || !newEmployee.position || !newEmployee.department) {
-      toast.error("Please fill all required fields (Name, Email, Aadhar Number, Position, Department)");
-      return;
+const handleAddEmployee = async () => {
+  // Validate required fields
+  const requiredFields = ['name', 'email', 'phone', 'aadharNumber', 'department', 'position', 'salary'];
+  const missingFields = requiredFields.filter(field => !newEmployee[field as keyof NewEmployeeForm]);
+  
+  if (missingFields.length > 0) {
+    toast.error(`Missing required fields: ${missingFields.join(', ')}`);
+    return;
+  }
+
+  setLoading(true);
+
+  try {
+    const formData = new FormData();
+    
+    // Add files
+    if (newEmployee.photo instanceof File) {
+      formData.append('photo', newEmployee.photo);
     }
-
-    // Validate phone number
-    if (newEmployee.phone && !/^\d{10}$/.test(newEmployee.phone)) {
-      toast.error("Please enter a valid 10-digit phone number");
-      return;
+    if (newEmployee.employeeSignature instanceof File) {
+      formData.append('employeeSignature', newEmployee.employeeSignature);
     }
-
-    // Validate Aadhar number
-    if (!/^\d{12}$/.test(newEmployee.aadharNumber)) {
-      toast.error("Please enter a valid 12-digit Aadhar number");
-      return;
+    if (newEmployee.authorizedSignature instanceof File) {
+      formData.append('authorizedSignature', newEmployee.authorizedSignature);
     }
-
-    // Validate PAN number if provided
-    if (newEmployee.panNumber && !/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/.test(newEmployee.panNumber.toUpperCase())) {
-      toast.error("Please enter a valid PAN number (format: ABCDE1234F)");
-      return;
-    }
-
-    // Validate salary
-    if (!newEmployee.salary || parseFloat(newEmployee.salary) <= 0) {
-      toast.error("Please enter a valid salary amount");
-      return;
-    }
-
-    setLoading(true);
-
-    try {
-      // Create FormData object
-      const formData = new FormData();
-
-      // Add employee photo if exists
-      if (newEmployee.photo instanceof File) {
-        formData.append('photo', newEmployee.photo);
-      }
-
-      // Add employee signature if exists
-      if (newEmployee.employeeSignature instanceof File) {
-        formData.append('employeeSignature', newEmployee.employeeSignature);
-      }
-
-      // Add authorized signature if exists
-      if (newEmployee.authorizedSignature instanceof File) {
-        formData.append('authorizedSignature', newEmployee.authorizedSignature);
-      }
-
-      // Add other form data
-      const employeeDataToSend = {
-        name: newEmployee.name,
-        email: newEmployee.email,
-        phone: newEmployee.phone,
-        aadharNumber: newEmployee.aadharNumber,
-        panNumber: newEmployee.panNumber?.toUpperCase() || '',
-        esicNumber: newEmployee.esicNumber,
-        uanNumber: newEmployee.uanNumber,
-        siteName: newEmployee.siteName,
-        dateOfBirth: newEmployee.dateOfBirth,
-        dateOfJoining: newEmployee.dateOfJoining,
-        dateOfExit: newEmployee.dateOfExit,
-        bloodGroup: newEmployee.bloodGroup,
-        gender: newEmployee.gender,
-        maritalStatus: newEmployee.maritalStatus,
-        permanentAddress: newEmployee.permanentAddress,
-        permanentPincode: newEmployee.permanentPincode,
-        localAddress: newEmployee.localAddress,
-        localPincode: newEmployee.localPincode,
-        bankName: newEmployee.bankName,
-        accountNumber: newEmployee.accountNumber,
-        ifscCode: newEmployee.ifscCode.toUpperCase(),
-        branchName: newEmployee.branchName,
-        fatherName: newEmployee.fatherName,
-        motherName: newEmployee.motherName,
-        spouseName: newEmployee.spouseName,
-        numberOfChildren: newEmployee.numberOfChildren,
-        emergencyContactName: newEmployee.emergencyContactName,
-        emergencyContactPhone: newEmployee.emergencyContactPhone,
-        emergencyContactRelation: newEmployee.emergencyContactRelation,
-        nomineeName: newEmployee.nomineeName,
-        nomineeRelation: newEmployee.nomineeRelation,
-        pantSize: newEmployee.pantSize,
-        shirtSize: newEmployee.shirtSize,
-        capSize: newEmployee.capSize,
-        idCardIssued: newEmployee.idCardIssued,
-        westcoatIssued: newEmployee.westcoatIssued,
-        apronIssued: newEmployee.apronIssued,
-        department: newEmployee.department,
-        position: newEmployee.position,
-        salary: newEmployee.salary
-      };
-
-      // Append all other data
-      Object.entries(employeeDataToSend).forEach(([key, value]) => {
-        if (value !== undefined && value !== null && value !== '') {
+    
+    // Add all other data
+    Object.entries(newEmployee).forEach(([key, value]) => {
+      if (key !== 'photo' && key !== 'employeeSignature' && key !== 'authorizedSignature' && value !== null && value !== undefined && value !== '') {
+        if (key === 'idCardIssued' || key === 'westcoatIssued' || key === 'apronIssued') {
+          formData.append(key, value ? 'true' : 'false');
+        } else if (key === 'numberOfChildren') {
+          formData.append(key, value.toString());
+        } else if (key === 'salary') {
+          formData.append(key, parseFloat(value).toString());
+        } else {
           formData.append(key, value.toString());
         }
-      });
-
-      console.log('Sending employee data to backend...');
-
-      const response = await fetch(`${API_URL}/employees`, {
-        method: "POST",
-        body: formData
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || data.error || "Failed to create employee");
       }
+    });
 
-      toast.success("Employee created successfully!");
-      
-      // The backend returns the employee data with Cloudinary URLs
-      const createdEmployee = data.employee;
-      
-      // Debug: Log the created employee data
-      console.log('Created employee data:', createdEmployee);
-      
-      if (!createdEmployee) {
-        throw new Error('No employee data returned from server');
-      }
-      
-      // Ensure the employee object has all required properties
-      const processedEmployee: Employee = {
-        _id: createdEmployee._id,
-        employeeId: createdEmployee.employeeId,
-        name: createdEmployee.name,
-        email: createdEmployee.email,
-        phone: createdEmployee.phone,
-        aadharNumber: createdEmployee.aadharNumber,
-        department: createdEmployee.department,
-        position: createdEmployee.position,
-        joinDate: createdEmployee.joinDate || createdEmployee.dateOfJoining,
-        dateOfJoining: createdEmployee.dateOfJoining,
-        status: createdEmployee.status || 'active',
-        salary: createdEmployee.salary || 0,
-        uanNumber: createdEmployee.uanNumber,
-        uan: createdEmployee.uan,
-        esicNumber: createdEmployee.esicNumber,
-        panNumber: createdEmployee.panNumber,
-        photo: createdEmployee.photo,
-        siteName: createdEmployee.siteName,
-        dateOfBirth: createdEmployee.dateOfBirth,
-        bloodGroup: createdEmployee.bloodGroup,
-        gender: createdEmployee.gender,
-        maritalStatus: createdEmployee.maritalStatus,
-        permanentAddress: createdEmployee.permanentAddress,
-        permanentPincode: createdEmployee.permanentPincode,
-        localAddress: createdEmployee.localAddress,
-        localPincode: createdEmployee.localPincode,
-        bankName: createdEmployee.bankName,
-        accountNumber: createdEmployee.accountNumber,
-        ifscCode: createdEmployee.ifscCode,
-        branchName: createdEmployee.branchName,
-        fatherName: createdEmployee.fatherName,
-        motherName: createdEmployee.motherName,
-        spouseName: createdEmployee.spouseName,
-        numberOfChildren: createdEmployee.numberOfChildren,
-        emergencyContactName: createdEmployee.emergencyContactName,
-        emergencyContactPhone: createdEmployee.emergencyContactPhone,
-        emergencyContactRelation: createdEmployee.emergencyContactRelation,
-        nomineeName: createdEmployee.nomineeName,
-        nomineeRelation: createdEmployee.nomineeRelation,
-        pantSize: createdEmployee.pantSize,
-        shirtSize: createdEmployee.shirtSize,
-        capSize: createdEmployee.capSize,
-        idCardIssued: createdEmployee.idCardIssued || false,
-        westcoatIssued: createdEmployee.westcoatIssued || false,
-        apronIssued: createdEmployee.apronIssued || false,
-        employeeSignature: createdEmployee.employeeSignature,
-        authorizedSignature: createdEmployee.authorizedSignature,
-        createdAt: createdEmployee.createdAt,
-        updatedAt: createdEmployee.updatedAt
-      };
-      
-      // Update employees list with the new employee
-      setEmployees(prev => [...prev, processedEmployee]);
-      
-      // Reset form FIRST
-      setNewEmployee(resetNewEmployeeForm());
-      setUploadedDocuments([]);
-      
-      // Then initialize EPF Form and switch tabs
-      initializeEPFForm(processedEmployee);
+    console.log('Creating employee with data:', Object.fromEntries(formData));
 
-    } catch (error: any) {
-      console.error("Error creating employee:", error);
-      toast.error(error.message || "Error creating employee. Please try again.");
-    } finally {
-      setLoading(false);
+    const response = await fetch(`${API_URL}/employees`, {
+      method: "POST",
+      body: formData
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.message || data.error || "Failed to create employee");
     }
-  };
 
+    toast.success("Employee created successfully!");
+    
+    // Reset form
+    setNewEmployee(resetNewEmployeeForm());
+    setUploadedDocuments([]);
+    
+    // Refresh employee list if in EmployeesTab
+    // You might want to pass a callback or use context/state management
+    
+  } catch (error: any) {
+    console.error("Error creating employee:", error);
+    toast.error(error.message || "Error creating employee. Please check console for details.");
+  } finally {
+    setLoading(false);
+  }
+};
   const handleDocumentUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
     if (files) {
@@ -1396,6 +1683,119 @@ const OnboardingTab = ({
         </div>
       )}
 
+      {/* Excel Import Preview Modal */}
+      {showExcelPreview && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-6xl w-full max-h-[90vh] overflow-hidden">
+            <div className="flex justify-between items-center p-4 border-b">
+              <h3 className="text-lg font-semibold">
+                Excel Import Preview ({excelData.length} employees)
+              </h3>
+              <div className="flex gap-2">
+                <Button 
+                  onClick={handleBulkImport} 
+                  disabled={importing || excelData.length === 0}
+                  className="flex items-center gap-2"
+                >
+                  {importing ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Importing... {importProgress}%
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="h-4 w-4" />
+                      Import All
+                    </>
+                  )}
+                </Button>
+                <Button variant="outline" onClick={() => {
+                  setShowExcelPreview(false);
+                  setExcelData([]);
+                }}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+            
+            <div className="p-4 overflow-auto max-h-[70vh]">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Email</TableHead>
+                    <TableHead>Phone</TableHead>
+                    <TableHead>Aadhar</TableHead>
+                    <TableHead>Department</TableHead>
+                    <TableHead>Position</TableHead>
+                    <TableHead>Salary</TableHead>
+                    <TableHead>Joining Date</TableHead>
+                    <TableHead>Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {excelData.map((employee, index) => (
+                    <TableRow key={index}>
+                      <TableCell className="font-medium">{employee.name}</TableCell>
+                      <TableCell>{employee.email}</TableCell>
+                      <TableCell>{employee.phone}</TableCell>
+                      <TableCell className="font-mono text-xs">
+                        {employee.aadharNumber ? `••••${employee.aadharNumber.slice(-4)}` : '-'}
+                      </TableCell>
+                      <TableCell>{employee.department}</TableCell>
+                      <TableCell>{employee.position}</TableCell>
+                      <TableCell>₹{employee.salary || '0'}</TableCell>
+                      <TableCell>{employee.dateOfJoining || '-'}</TableCell>
+                      <TableCell>
+                        <span className={`px-2 py-1 rounded text-xs ${
+                          employee.dateOfExit && employee.dateOfExit.trim() !== '' 
+                            ? 'bg-red-100 text-red-800' 
+                            : 'bg-green-100 text-green-800'
+                        }`}>
+                          {employee.dateOfExit && employee.dateOfExit.trim() !== '' ? 'Left' : 'Active'}
+                        </span>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+              
+              {excelData.length === 0 && (
+                <div className="text-center py-8 text-muted-foreground">
+                  No data to preview
+                </div>
+              )}
+            </div>
+            
+            <div className="p-4 border-t bg-gray-50">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                <div>
+                  <span className="font-medium">Total Records:</span> {excelData.length}
+                </div>
+                <div>
+                  <span className="font-medium">Required Fields:</span>
+                  <div className="text-xs text-muted-foreground">
+                    Name, Email, Aadhar, Position, Department
+                  </div>
+                </div>
+                <div>
+                  <span className="font-medium">Date Format:</span>
+                  <div className="text-xs text-muted-foreground">
+                    YYYY-MM-DD or Excel dates
+                  </div>
+                </div>
+                <div>
+                  <span className="font-medium">Boolean Fields:</span>
+                  <div className="text-xs text-muted-foreground">
+                    Yes/No, True/False, 1/0, ✓
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="onboarding" className="flex items-center gap-2">
@@ -1411,7 +1811,18 @@ const OnboardingTab = ({
         <TabsContent value="onboarding">
           <Card>
             <CardHeader>
-              <CardTitle>Digital Onboarding & Document Verification</CardTitle>
+              <CardTitle className="flex justify-between items-center">
+                <span>Digital Onboarding & Document Verification</span>
+                <Button 
+                  onClick={downloadExcelTemplate} 
+                  variant="outline" 
+                  size="sm"
+                  className="h-8 text-xs"
+                >
+                  <Download className="h-3 w-3 mr-1" />
+                  Download Template
+                </Button>
+              </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="border-2 border-gray-300 p-4 md:p-6 mb-6">
@@ -2127,7 +2538,7 @@ const OnboardingTab = ({
                   </div>
                 </div>
 
-                <div className="flex gap-4">
+                <div className="flex gap-4 flex-col sm:flex-row">
                   <Button onClick={handleAddEmployee} className="flex-1" size="lg" disabled={loading}>
                     {loading ? (
                       <>
@@ -2141,6 +2552,40 @@ const OnboardingTab = ({
                       </>
                     )}
                   </Button>
+                  
+                  <div className="relative">
+                    <Button 
+                      onClick={() => excelImportRef.current?.click()} 
+                      variant="outline" 
+                      className="w-full sm:w-auto"
+                      disabled={importing}
+                    >
+                      {importing ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Processing Excel...
+                        </>
+                      ) : (
+                        <>
+                          <Upload className="mr-2 h-4 w-4" />
+                          Import Excel
+                        </>
+                      )}
+                    </Button>
+                    
+                    <Input
+                      ref={excelImportRef}
+                      type="file"
+                      accept=".xlsx,.xls,.csv"
+                      onChange={handleExcelImport}
+                      className="hidden"
+                    />
+                  </div>
+                </div>
+
+                <div className="text-xs text-muted-foreground mt-2">
+                  <strong>Excel Import:</strong> Use the template above or your existing Excel file with the same column headers.
+                  Required fields: Name, Email, Aadhar Number, Position, Department, Monthly Salary
                 </div>
               </div>
             </CardContent>

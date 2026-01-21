@@ -1,13 +1,8 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
-import { toast } from "sonner";
 
 export type UserRole = "superadmin" | "admin" | "manager" | "supervisor" | "employee" | null;
 
 export interface User {
-  [x: string]: any;
-  site: string;
-  department: string;
-  contactNumber: any;
   _id: string;
   id: string;
   name: string;
@@ -15,6 +10,11 @@ export interface User {
   role: UserRole;
   isActive: boolean;
   joinDate: string;
+  site: string;
+  department: string;
+  contactNumber?: string;
+  lastLogin?: string;
+  [key: string]: any; // For any additional fields
 }
 
 interface RoleContextType {
@@ -27,6 +27,7 @@ interface RoleContextType {
   loading: boolean;
 }
 
+// Use your actual backend URL
 const API_URL = `http://${window.location.hostname}:5001/api/auth`;
 
 const RoleContext = createContext<RoleContextType | undefined>(undefined);
@@ -35,23 +36,51 @@ export const RoleProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [role, setRole] = useState<UserRole>(null);
   const [loading, setLoading] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   useEffect(() => {
     // Check for stored user session on initial load
-    const storedUser = localStorage.getItem("sk_user");
-    const storedToken = localStorage.getItem("sk_token");
-
-    if (storedUser && storedToken) {
-      const parsedUser = JSON.parse(storedUser);
-      setUser(parsedUser);
-      setRole(parsedUser.role);
-    }
-    
-    setLoading(false);
+    checkAuth();
   }, []);
+
+  const checkAuth = async () => {
+    try {
+      const storedUser = localStorage.getItem("sk_user");
+      const storedToken = localStorage.getItem("sk_token");
+
+      if (storedUser && storedToken) {
+        // Verify token with backend
+        const response = await fetch(`${API_URL}/verify`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${storedToken}`
+          },
+          body: JSON.stringify({ token: storedToken })
+        });
+
+        if (response.ok) {
+          const parsedUser = JSON.parse(storedUser);
+          setUser(parsedUser);
+          setRole(parsedUser.role);
+          setIsAuthenticated(true);
+        } else {
+          // Token invalid, clear storage
+          localStorage.removeItem("sk_user");
+          localStorage.removeItem("sk_token");
+        }
+      }
+    } catch (error) {
+      console.error('Auth check error:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const signup = async (name: string, email: string, password: string, selectedRole: UserRole) => {
     try {
+      console.log('🟡 Signup attempt:', { name, email, role: selectedRole });
+      
       const response = await fetch(`${API_URL}/signup`, {
         method: 'POST',
         headers: {
@@ -66,9 +95,10 @@ export const RoleProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
 
       const data = await response.json();
+      console.log('🟡 Signup response:', data);
 
       if (!data.success) {
-        throw new Error(data.message);
+        throw new Error(data.message || 'Signup failed');
       }
 
       // Save user and token
@@ -77,15 +107,25 @@ export const RoleProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       setUser(data.user);
       setRole(data.user.role);
+      setIsAuthenticated(true);
+      
+      console.log('✅ Signup successful for:', data.user.email);
       
     } catch (error: any) {
-      console.error('Signup error:', error);
+      console.error('🔴 Signup error:', error);
       throw error;
     }
   };
 
   const login = async (email: string, password: string, selectedRole: UserRole) => {
     try {
+      console.log('🟡 Login attempt:', { 
+        email, 
+        role: selectedRole,
+        passwordLength: password.length,
+        apiUrl: API_URL 
+      });
+      
       const response = await fetch(`${API_URL}/login`, {
         method: 'POST',
         headers: {
@@ -98,10 +138,24 @@ export const RoleProvider: React.FC<{ children: React.ReactNode }> = ({ children
         })
       });
 
+      console.log('🟡 Response status:', response.status);
+      
       const data = await response.json();
+      console.log('🟡 Login response data:', data);
 
-      if (!data.success) {
-        throw new Error(data.message);
+      if (!response.ok || !data.success) {
+        console.error('🔴 Login failed:', {
+          status: response.status,
+          success: data.success,
+          message: data.message,
+          debug: data.debug
+        });
+        
+        let errorMessage = data.message || 'Login failed';
+        if (data.debug) {
+          errorMessage += ` (Debug: ${JSON.stringify(data.debug)})`;
+        }
+        throw new Error(errorMessage);
       }
 
       // Save user and token
@@ -110,9 +164,15 @@ export const RoleProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       setUser(data.user);
       setRole(data.user.role);
+      setIsAuthenticated(true);
+      
+      console.log('✅ Login successful for:', data.user.email);
       
     } catch (error: any) {
-      console.error('Login error:', error);
+      console.error('🔴 Login error details:', {
+        message: error.message,
+        stack: error.stack
+      });
       throw error;
     }
   };
@@ -120,8 +180,10 @@ export const RoleProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = () => {
     setUser(null);
     setRole(null);
+    setIsAuthenticated(false);
     localStorage.removeItem("sk_user");
     localStorage.removeItem("sk_token");
+    console.log('✅ User logged out');
   };
 
   return (
@@ -132,7 +194,7 @@ export const RoleProvider: React.FC<{ children: React.ReactNode }> = ({ children
         login,
         signup,
         logout,
-        isAuthenticated: !!user,
+        isAuthenticated,
         loading
       }}
     >

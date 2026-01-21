@@ -1,9 +1,8 @@
-// src/middleware/auth.ts
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import User from '../models/User';
+import User from '../models/User'; // Import your User model
 
-// Extend Express Request type
+// Extend Express Request type to include user
 declare global {
   namespace Express {
     interface Request {
@@ -13,6 +12,7 @@ declare global {
   }
 }
 
+// Proper JWT authentication middleware
 export const auth = async (req: Request, res: Response, next: NextFunction) => {
   try {
     // Get token from header
@@ -52,9 +52,9 @@ export const auth = async (req: Request, res: Response, next: NextFunction) => {
       });
     }
 
-    // Attach user to request - BOTH ways for compatibility
+    // Attach user to request
     req.user = user;
-    req.userId = user._id.toString(); // Add this line
+    req.userId = user._id.toString();
 
     console.log(`✅ Auth: ${user.name} (${user.role}) accessing ${req.method} ${req.path}`);
     next();
@@ -82,21 +82,25 @@ export const auth = async (req: Request, res: Response, next: NextFunction) => {
   }
 };
 
+// Development-only mock auth (for testing)
 export const mockAuth = async (req: Request, res: Response, next: NextFunction) => {
   try {
+    // Check if token exists but don't validate it
     const authHeader = req.header('Authorization');
     
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const token = authHeader.replace('Bearer ', '');
       
       try {
+        // Try to decode token without verification
         const decoded = jwt.decode(token) as any;
         
         if (decoded?.userId) {
+          // Try to find real user first
           const user = await User.findById(decoded.userId).select('-password');
           if (user) {
             req.user = user;
-            req.userId = user._id.toString(); // Add this line
+            req.userId = user._id.toString();
             console.log(`✅ Mock Auth: Using real user ${user.name}`);
             return next();
           }
@@ -114,7 +118,7 @@ export const mockAuth = async (req: Request, res: Response, next: NextFunction) 
       email: 'system@example.com',
       role: 'admin'
     };
-    req.userId = 'system'; // Add this line
+    req.userId = 'system';
     
     console.log(`⚠️ Mock Auth: Using system user for ${req.method} ${req.path}`);
     next();
@@ -124,6 +128,7 @@ export const mockAuth = async (req: Request, res: Response, next: NextFunction) 
   }
 };
 
+// Role-based authorization middleware (unchanged)
 export const authorize = (...roles: string[]) => {
   return (req: Request, res: Response, next: NextFunction) => {
     if (!req.user) {

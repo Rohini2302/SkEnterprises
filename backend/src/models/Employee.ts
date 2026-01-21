@@ -84,10 +84,17 @@ const EmployeeSchema: Schema = new Schema(
     // Basic Information
     employeeId: {
       type: String,
-      required: true,
       unique: true,
       trim: true,
-      index: true
+      default: function() {
+        // Generate employee ID if not provided
+        const date = new Date();
+        const dateStr = date.getFullYear().toString().slice(2) + 
+                      (date.getMonth() + 1).toString().padStart(2, '0') + 
+                      date.getDate().toString().padStart(2, '0');
+        const random = Math.floor(1000 + Math.random() * 9000);
+        return `EMP${dateStr}${random}`;
+      }
     },
     name: {
       type: String,
@@ -105,34 +112,57 @@ const EmployeeSchema: Schema = new Schema(
     phone: {
       type: String,
       required: [true, 'Phone number is required'],
-      trim: true
+      trim: true,
+      validate: {
+        validator: function(v: string) {
+          // Allow null/empty for validation, but not for required
+          if (!v || v.trim() === '') return false;
+          // Check if it's exactly 10 digits
+          return /^[0-9]{10}$/.test(v);
+        },
+        message: 'Please enter a valid 10-digit phone number'
+      }
     },
     aadharNumber: {
       type: String,
       required: [true, 'Aadhar number is required'],
       unique: true,
       trim: true,
-      minlength: [12, 'Aadhar number must be 12 digits'],
-      maxlength: [12, 'Aadhar number must be 12 digits']
+      validate: {
+        validator: function(v: string) {
+          return /^[0-9]{12}$/.test(v);
+        },
+        message: 'Aadhar number must be exactly 12 digits'
+      }
     },
     panNumber: {
       type: String,
       trim: true,
       uppercase: true,
-      match: [/^[A-Z]{5}[0-9]{4}[A-Z]{1}$|^$/, 'Please enter a valid PAN or leave empty']
+      default: null, // Use null instead of empty string
+      validate: {
+        validator: function(v: string) {
+          if (!v || v.trim() === '') return true; // Allow empty/null
+          return /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/.test(v);
+        },
+        message: 'Please enter a valid PAN format (e.g., ABCDE1234F) or leave empty'
+      }
     },
     esicNumber: {
       type: String,
-      trim: true
+      trim: true,
+      default: null
     },
     uanNumber: {
       type: String,
-      trim: true
+      trim: true,
+      default: null
     },
     
     // Personal Details
     dateOfBirth: {
-      type: Date
+      type: Date,
+      default: null
     },
     dateOfJoining: {
       type: Date,
@@ -140,80 +170,111 @@ const EmployeeSchema: Schema = new Schema(
       default: Date.now
     },
     dateOfExit: {
-      type: Date
+      type: Date,
+      default: null
     },
     bloodGroup: {
       type: String,
       enum: ['A+', 'A-', 'B+', 'B-', 'O+', 'O-', 'AB+', 'AB-', null],
-      default: null
+      default: null // CRITICAL: Must be null, not empty string
     },
     gender: {
       type: String,
       enum: ['Male', 'Female', 'Transgender', null],
-      default: null
+      default: null // CRITICAL: Must be null
     },
     maritalStatus: {
       type: String,
       enum: ['Single', 'Married', 'Widow', 'Widower', 'Divorcee', null],
-      default: null
+      default: null // CRITICAL: Must be null
     },
     
     // Address
     permanentAddress: {
       type: String,
-      trim: true
+      trim: true,
+      default: null
     },
     permanentPincode: {
       type: String,
       trim: true,
-      match: [/^[1-9][0-9]{5}$|^$/, 'Please enter a valid pincode or leave empty']
+      default: null,
+      validate: {
+        validator: function(v: string) {
+          if (!v || v.trim() === '') return true;
+          return /^[1-9][0-9]{5}$/.test(v);
+        },
+        message: 'Please enter a valid 6-digit pincode'
+      }
     },
     localAddress: {
       type: String,
-      trim: true
+      trim: true,
+      default: null
     },
     localPincode: {
       type: String,
       trim: true,
-      match: [/^[1-9][0-9]{5}$|^$/, 'Please enter a valid pincode or leave empty']
+      default: null,
+      validate: {
+        validator: function(v: string) {
+          if (!v || v.trim() === '') return true;
+          return /^[1-9][0-9]{5}$/.test(v);
+        },
+        message: 'Please enter a valid 6-digit pincode'
+      }
+    },
+    bankBranch: {
+      type: String,
+      trim: true,
+      default: null
     },
     
     // Bank Details
     bankName: {
       type: String,
-      trim: true
+      trim: true,
+      default: null
     },
     accountNumber: {
       type: String,
-      trim: true
+      trim: true,
+      default: null
     },
     ifscCode: {
       type: String,
       trim: true,
       uppercase: true,
-      match: [/^[A-Z]{4}0[A-Z0-9]{6}$|^$/, 'Please enter a valid IFSC code or leave empty']
+      default: null,
+      validate: {
+        validator: function(v: string) {
+          if (!v || v.trim() === '') return true;
+          return /^[A-Z]{4}0[A-Z0-9]{6}$/.test(v);
+        },
+        message: 'Please enter a valid IFSC code (e.g., SBIN0001234)'
+      }
     },
     branchName: {
       type: String,
-      trim: true
-    },
-    bankBranch: {
-      type: String,
-      trim: true
+      trim: true,
+      default: null
     },
     
     // Family Details
     fatherName: {
       type: String,
-      trim: true
+      trim: true,
+      default: null
     },
     motherName: {
       type: String,
-      trim: true
+      trim: true,
+      default: null
     },
     spouseName: {
       type: String,
-      trim: true
+      trim: true,
+      default: null
     },
     numberOfChildren: {
       type: Number,
@@ -224,60 +285,79 @@ const EmployeeSchema: Schema = new Schema(
     // Emergency Contact
     emergencyContactName: {
       type: String,
-      trim: true
+      trim: true,
+      default: null
     },
     emergencyContactPhone: {
       type: String,
-      trim: true
+      trim: true,
+      default: null,
+      validate: {
+        validator: function(v: string) {
+          if (!v || v.trim() === '') return true;
+          return /^[0-9]{10}$/.test(v);
+        },
+        message: 'Please enter a valid 10-digit phone number or leave empty'
+      }
     },
     emergencyContactRelation: {
       type: String,
-      trim: true
+      trim: true,
+      default: null
     },
     
     // Nominee Details
     nomineeName: {
       type: String,
-      trim: true
+      trim: true,
+      default: null
     },
     nomineeRelation: {
       type: String,
-      trim: true
+      trim: true,
+      default: null
     },
     
-    // Employment Details
+    // Employment Details - UPDATED ENUM VALUES
     department: {
       type: String,
       required: [true, 'Department is required'],
       enum: [
-        'Housekeeping Management',
-        'Security Management',
-        'Parking Management',
+        'Housekeeping',           // For HK STAFF, HK Supervisor, HK SUPERVISOR
+        'Security',               // For Security Guard, GATE ATTENDANT, Bouncer, Security SUP
+        'Parking Management',     // For Parking Attendent, PARKING
         'Waste Management',
         'STP Tank Cleaning',
         'Consumables Management',
-        'Administration',
-        'HR',
-        'Finance',
+        'Administration',         // For MANAGER, Manager, OFFICE STAFF, Admin, RECEPTIONIST
+        'Finance',                // For ACCOUNTANT, ACCOUNDEND
+        'HR',                     // For HR
         'IT',
-        'Operations',
+        'Operations',             // For OWC OPERATOR, OWC Opreter
         'Maintenance',
-        'General'
-      ]
+        'Driver',                 // For Driver, DRIVER
+        'Supervisor',             // For Supervisor
+        'Sales',
+        'General Staff'           // Default fallback
+      ],
+      default: 'General Staff'
     },
     position: {
       type: String,
       required: [true, 'Position is required'],
-      trim: true
+      trim: true,
+      default: 'Employee'
     },
     siteName: {
       type: String,
-      trim: true
+      trim: true,
+      default: 'Main Office'
     },
     salary: {
       type: Number,
       required: [true, 'Salary is required'],
-      min: [0, 'Salary cannot be negative']
+      min: [0, 'Salary cannot be negative'],
+      default: 15000
     },
     status: {
       type: String,
@@ -321,45 +401,62 @@ const EmployeeSchema: Schema = new Schema(
       default: false
     },
     
+    // Cloudinary URLs
     photo: {
       type: String,
-      default: ''
+      default: null
     },
     
     photoPublicId: {
       type: String,
-      default: ''
+      default: null
     },
     
     employeeSignature: {
       type: String,
-      default: ''
+      default: null
     },
     
     employeeSignaturePublicId: {
       type: String,
-      default: ''
+      default: null
     },
     
     authorizedSignature: {
       type: String,
-      default: ''
+      default: null
     },
     
     authorizedSignaturePublicId: {
       type: String,
-      default: ''
+      default: null
     },
   },
   {
     timestamps: true,
-    toJSON: { virtuals: true },
-    toObject: { virtuals: true }
+    toJSON: { 
+      virtuals: true,
+      transform: function(doc, ret) {
+        // Remove sensitive fields when converting to JSON
+        delete ret.__v;
+        delete ret.photoPublicId;
+        delete ret.employeeSignaturePublicId;
+        delete ret.authorizedSignaturePublicId;
+        return ret;
+      }
+    },
+    toObject: { 
+      virtuals: true,
+      transform: function(doc, ret) {
+        delete ret.__v;
+        delete ret.photoPublicId;
+        delete ret.employeeSignaturePublicId;
+        delete ret.authorizedSignaturePublicId;
+        return ret;
+      }
+    }
   }
 );
-
-// Remove the auto-generating pre-save hook - it's causing issues
-// Instead, we'll handle this in the controller
 
 // Indexes for better query performance
 EmployeeSchema.index({ email: 1 }, { unique: true });
@@ -368,5 +465,117 @@ EmployeeSchema.index({ employeeId: 1 }, { unique: true });
 EmployeeSchema.index({ status: 1 });
 EmployeeSchema.index({ department: 1 });
 EmployeeSchema.index({ dateOfJoining: -1 });
+EmployeeSchema.index({ siteName: 1 });
 
-export default mongoose.model<IEmployee>('Employee', EmployeeSchema);
+// Virtual for formatted date
+EmployeeSchema.virtual('formattedDateOfJoining').get(function() {
+  return this.dateOfJoining ? this.dateOfJoining.toISOString().split('T')[0] : '';
+});
+
+EmployeeSchema.virtual('formattedDateOfBirth').get(function() {
+  return this.dateOfBirth ? this.dateOfBirth.toISOString().split('T')[0] : '';
+});
+
+EmployeeSchema.virtual('formattedDateOfExit').get(function() {
+  return this.dateOfExit ? this.dateOfExit.toISOString().split('T')[0] : '';
+});
+
+// Middleware to handle validation errors - IMPROVED VERSION
+EmployeeSchema.post('save', function(error: any, doc: any, next: any) {
+  if (error.name === 'MongoError' && error.code === 11000) {
+    const field = Object.keys(error.keyPattern)[0];
+    let message = '';
+    
+    if (field === 'email') {
+      message = 'Email already exists. Please use a different email.';
+    } else if (field === 'aadharNumber') {
+      message = 'Aadhar number already exists. Please check and try again.';
+    } else if (field === 'employeeId') {
+      message = 'Employee ID already exists.';
+    } else {
+      message = `Duplicate value for ${field}`;
+    }
+    
+    next(new Error(message));
+  } else if (error.name === 'ValidationError') {
+    // Format validation errors better
+    const errors = Object.values(error.errors).map((err: any) => {
+      return `• ${err.message}`;
+    });
+    next(new Error(errors.join('\n')));
+  } else {
+    next(error);
+  }
+});
+
+// Pre-save middleware to clean up data
+EmployeeSchema.pre('save', function(next) {
+  // Trim all string fields
+  const stringFields = ['name', 'email', 'phone', 'aadharNumber', 'panNumber', 
+                       'esicNumber', 'uanNumber', 'position', 'siteName',
+                       'permanentAddress', 'localAddress', 'bankName', 
+                       'accountNumber', 'ifscCode', 'branchName'];
+  
+  stringFields.forEach(field => {
+    if (this.get(field) && typeof this.get(field) === 'string') {
+      this.set(field, this.get(field).trim());
+    }
+  });
+  
+  // Convert empty strings to null for optional fields
+  const optionalFields = ['panNumber', 'esicNumber', 'uanNumber', 'permanentAddress',
+                         'localAddress', 'bankName', 'accountNumber', 'ifscCode',
+                         'branchName', 'fatherName', 'motherName', 'spouseName',
+                         'emergencyContactName', 'emergencyContactPhone',
+                         'emergencyContactRelation', 'nomineeName', 'nomineeRelation'];
+  
+  optionalFields.forEach(field => {
+    const value = this.get(field);
+    if (value === '' || value === undefined) {
+      this.set(field, null);
+    }
+  });
+  
+  next();
+});
+
+// Static method to get all valid departments
+EmployeeSchema.statics.getValidDepartments = function() {
+  return [
+    'Housekeeping',
+    'Security',
+    'Parking Management',
+    'Waste Management',
+    'STP Tank Cleaning',
+    'Consumables Management',
+    'Administration',
+    'Finance',
+    'HR',
+    'IT',
+    'Operations',
+    'Maintenance',
+    'Driver',
+    'Supervisor',
+    'Sales',
+    'General Staff'
+  ];
+};
+
+// Static method to get all valid blood groups
+EmployeeSchema.statics.getValidBloodGroups = function() {
+  return ['A+', 'A-', 'B+', 'B-', 'O+', 'O-', 'AB+', 'AB-'];
+};
+
+// Static method to get all valid genders
+EmployeeSchema.statics.getValidGenders = function() {
+  return ['Male', 'Female', 'Transgender'];
+};
+
+// Fix for TypeScript static methods
+interface EmployeeModel extends mongoose.Model<IEmployee> {
+  getValidDepartments(): string[];
+  getValidBloodGroups(): string[];
+  getValidGenders(): string[];
+}
+
+export default mongoose.model<IEmployee, EmployeeModel>('Employee', EmployeeSchema);

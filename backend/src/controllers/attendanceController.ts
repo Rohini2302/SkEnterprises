@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import Attendance, { IAttendance } from '../models/Attendance';
+import Attendance, { IAttendance } from '../models/attendance';
 import mongoose from 'mongoose';
 
 // Check in function
